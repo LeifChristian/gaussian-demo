@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <title>3D Room Marker Demo</title>
+  <script type="importmap">
+    {
+        "imports": {
+            "three": "./lib/three.module.js",
+            "@mkkellogg/gaussian-splats-3d": "./lib/gaussian-splats-3d.module.js"
+        }
+    }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background-color: #0a0a0f; height: 100vh; width: 100vw; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #e0e0e0; display: flex;
+    }
+
+    /* -- Left scenes drawer -- */
+    #scenes-drawer {
+      width: 0; overflow: hidden; background: #0e0e18; border-right: 1px solid #2a2a3a;
+      transition: width 0.25s ease; display: flex; flex-direction: column;
+    }
+    #scenes-drawer.open { width: 260px; min-width: 260px; }
+    #scenes-drawer-inner { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+    #scenes-drawer h2 {
+      font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+      color: #8ab4f8; border-bottom: 1px solid #2a2a3a; padding-bottom: 8px;
+    }
+    .scene-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+    .scene-item {
+      display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px;
+      background: #1a1a28; border: 1px solid #2a2a3a; font-size: 11px; cursor: pointer;
+      transition: background 0.1s;
+    }
+    .scene-item:hover { background: #222238; }
+    .scene-item.active { background: #2a3a5a; border-color: #4a6fa5; }
+    .scene-item .scene-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scene-item .scene-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .scene-item .scene-actions button {
+      background: none; border: none; color: #777; cursor: pointer; font-size: 12px; padding: 0 2px;
+    }
+    .scene-item .scene-actions button:hover { color: #ddd; }
+    .scene-item .scene-actions .sc-del:hover { color: #ff6666; }
+    .scene-empty { font-size: 11px; color: #555; font-style: italic; padding: 8px 0; }
+
+    /* -- Hamburger -- */
+    #hamburger {
+      position: absolute; top: 12px; left: 12px; z-index: 20;
+      width: 36px; height: 36px; background: rgba(18,18,26,0.92); border: 1px solid #2a2a3a;
+      border-radius: 6px; cursor: pointer; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 4px;
+    }
+    #hamburger span { display: block; width: 18px; height: 2px; background: #8ab4f8; border-radius: 1px; }
+
+    /* -- Viewport -- */
+    #viewport-container {
+      flex: 1; position: relative; display: flex; align-items: center; justify-content: center;
+    }
+    #placement-indicator {
+      display: none; position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(20,20,30,0.92); border: 1px solid #4a6fa5; border-radius: 6px;
+      padding: 8px 18px; font-size: 13px; color: #8ab4f8; pointer-events: none; z-index: 10;
+    }
+
+    /* -- Right control panel -- */
+    #control-panel {
+      width: 330px; min-width: 330px; background: #12121a; border-left: 1px solid #2a2a3a;
+      padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+    }
+    #control-panel h2 {
+      font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px;
+      color: #8ab4f8; border-bottom: 1px solid #2a2a3a; padding-bottom: 8px; margin-bottom: 2px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ps { background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 8px; padding: 12px; }
+    .ps h3 {
+      font-size: 11px; font-weight: 600; margin-bottom: 10px; text-transform: uppercase;
+      letter-spacing: 0.8px; color: #aaa;
+    }
+
+    /* Rows */
+    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .row:last-child { margin-bottom: 0; }
+    .row label { font-size: 11px; color: #999; width: 50px; flex-shrink: 0; }
+    .row input[type="number"] {
+      flex: 1; background: #0d0d14; border: 1px solid #333; border-radius: 4px;
+      padding: 4px 6px; color: #e0e0e0; font-size: 11px; font-family: 'Courier New', monospace;
+    }
+    .row input[type="number"]:focus { outline: none; border-color: #4a6fa5; }
+    .row input[type="range"] { flex: 1; accent-color: #4a6fa5; }
+    .row .rv {
+      font-size: 10px; font-family: 'Courier New', monospace; color: #8ab4f8;
+      width: 34px; text-align: right; flex-shrink: 0;
+    }
+    .row select {
+      flex: 1; background: #0d0d14; border: 1px solid #333; border-radius: 4px;
+      padding: 4px 6px; color: #e0e0e0; font-size: 11px;
+    }
+    .row select:focus { outline: none; border-color: #4a6fa5; }
+    .row input[type="color"] {
+      width: 32px; height: 22px; border: 1px solid #333; border-radius: 4px;
+      cursor: pointer; background: transparent; padding: 0;
+    }
+    .row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+    .row input[type="color"]::-webkit-color-swatch { border-radius: 2px; border: none; }
+
+    /* Buttons */
+    .btn {
+      padding: 5px 10px; border: 1px solid #333; border-radius: 5px; background: #1e1e2e;
+      color: #ccc; font-size: 11px; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: #2a2a40; border-color: #4a6fa5; }
+    .btn.active { background: #3a5a1a; border-color: #6a9a3a; color: #c0e8a0; }
+    .btn-sm { padding: 4px 8px; font-size: 10px; }
+    .btn-save { background: #1a3a2a; border-color: #2a6a3a; color: #90d0a0; }
+    .btn-save:hover { background: #2a5a3a; border-color: #4aaa5a; }
+
+    /* Shape palette */
+    .shape-palette { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+    .shape-btn {
+      width: 46px; height: 38px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 2px; border: 1px solid #333; border-radius: 5px;
+      background: #1e1e2e; color: #bbb; font-size: 8px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .shape-btn:hover { background: #2a2a40; border-color: #4a6fa5; }
+    .shape-btn.active { background: #2a4a7a; border-color: #6a9af5; color: #fff; }
+    .shape-btn svg { width: 16px; height: 16px; fill: currentColor; }
+
+    /* Object list */
+    .obj-list { max-height: 160px; overflow-y: auto; }
+    .obj-item {
+      display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px;
+      font-size: 11px; cursor: pointer; transition: background 0.1s; border: 1px solid transparent;
+    }
+    .obj-item:hover { background: #222238; }
+    .obj-item.selected { background: #2a3a5a; border-color: #4a6fa5; }
+    .obj-item .obj-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .obj-item .obj-name { flex: 1; }
+    .obj-item .obj-del {
+      background: none; border: none; color: #884444; cursor: pointer; font-size: 13px; padding: 0 2px;
+    }
+    .obj-item .obj-del:hover { color: #ff6666; }
+    .empty-list { font-size: 11px; color: #555; font-style: italic; }
+
+    /* Selected object editor */
+    #sel-obj-editor { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2a3a; }
+    #sel-obj-editor.visible { display: block; }
+    #sel-obj-editor .sel-title { font-size: 11px; font-weight: 600; color: #8ab4f8; margin-bottom: 8px; }
+
+    .marker-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .toggle-switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; cursor: pointer; inset: 0; background: #333; border-radius: 18px;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute; width: 12px; height: 12px; left: 3px; bottom: 3px;
+      background: #ccc; border-radius: 50%; transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #4a6fa5; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+    .distance-display {
+      font-size: 11px; font-family: 'Courier New', monospace; color: #8ab4f8;
+      background: #0d0d14; border: 1px solid #2a2a3a; border-radius: 4px; padding: 6px 10px; text-align: center;
+    }
+    .section-divider { border: none; border-top: 1px solid #2a2a3a; margin: 2px 0; }
+    .info-text { font-size: 10px; color: #555; line-height: 1.4; }
+  </style>
+</head>
+
+<body>
+  <!-- Left scenes drawer -->
+  <div id="scenes-drawer">
+    <div id="scenes-drawer-inner">
+      <h2>Saved Scenes</h2>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" id="sc-new" style="flex:1">+ New</button>
+        <button class="btn btn-sm btn-save" id="sc-save" style="flex:1">Save</button>
+      </div>
+      <div class="scene-list" id="scene-list">
+        <div class="scene-empty" id="scene-empty">No saved scenes</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Viewport -->
+  <div id="viewport-container">
+    <div id="hamburger"><span></span><span></span><span></span></div>
+    <div id="placement-indicator">Click in viewport to place</div>
+  </div>
+
+  <!-- Right control panel -->
+  <div id="control-panel">
+    <h2>
+      <span>3D Room Markers</span>
+      <button class="btn btn-sm btn-save" id="sc-save-top">Save</button>
+    </h2>
+
+    <!-- Room -->
+    <div class="ps">
+      <h3>Room</h3>
+      <div class="row">
+        <label>Shape</label>
+        <select id="room-shape"><option value="rectangular">Rectangular</option><option value="rounded">Rounded</option></select>
+      </div>
+      <div class="row">
+        <label>Width</label>
+        <input type="range" id="room-width" min="1" max="30" step="0.5" value="6">
+        <input type="number" id="room-width-n" value="6" step="0.5" min="1" max="30" style="width:46px">
+        <span style="font-size:9px;color:#666">m</span>
+      </div>
+      <div class="row">
+        <label>Depth</label>
+        <input type="range" id="room-depth" min="1" max="30" step="0.5" value="6">
+        <input type="number" id="room-depth-n" value="6" step="0.5" min="1" max="30" style="width:46px">
+        <span style="font-size:9px;color:#666">m</span>
+      </div>
+      <div class="row">
+        <label>Height</label>
+        <input type="range" id="room-height" min="1.5" max="10" step="0.25" value="3.5">
+        <input type="number" id="room-height-n" value="3.5" step="0.25" min="1.5" max="10" style="width:46px">
+        <span style="font-size:9px;color:#666">m</span>
+      </div>
+    </div>
+
+    <!-- View -->
+    <div class="ps">
+      <h3>View</h3>
+      <div class="row">
+        <label>Zoom</label>
+        <input type="range" id="view-zoom" min="1" max="30" step="0.5" value="7">
+        <span class="rv" id="view-zoom-v">7.0</span>
+      </div>
+      <div class="row">
+        <label>FOV</label>
+        <input type="range" id="view-fov" min="20" max="110" step="1" value="55">
+        <span class="rv" id="view-fov-v">55</span>
+      </div>
+      <div class="row" style="flex-wrap:wrap;gap:4px">
+        <button class="btn btn-sm" id="view-3q">3/4</button>
+        <button class="btn btn-sm" id="view-front">Front</button>
+        <button class="btn btn-sm" id="view-side">Side</button>
+        <button class="btn btn-sm" id="view-top">Top</button>
+        <button class="btn btn-sm" id="view-reset">Reset</button>
+      </div>
+    </div>
+
+    <!-- Objects -->
+    <div class="ps">
+      <h3>Place Objects</h3>
+      <div class="shape-palette" id="shape-palette">
+        <button class="shape-btn" data-shape="cube" title="Cube"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/></svg><span>Cube</span></button>
+        <button class="shape-btn" data-shape="sphere" title="Sphere"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg><span>Sphere</span></button>
+        <button class="shape-btn" data-shape="cylinder" title="Cylinder"><svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="6"/></svg><span>Cyl</span></button>
+        <button class="shape-btn" data-shape="cone" title="Cone"><svg viewBox="0 0 24 24"><polygon points="12,3 3,21 21,21"/></svg><span>Cone</span></button>
+        <button class="shape-btn" data-shape="pyramid" title="Pyramid"><svg viewBox="0 0 24 24"><polygon points="12,2 2,22 22,22"/></svg><span>Pyr</span></button>
+        <button class="shape-btn" data-shape="human" title="Human"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2"/><line x1="12" y1="10" x2="7" y2="14" stroke="currentColor" stroke-width="2"/><line x1="12" y1="10" x2="17" y2="14" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="8" y2="22" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="16" y2="22" stroke="currentColor" stroke-width="2"/></svg><span>Human</span></button>
+      </div>
+      <div class="row"><label>Color</label><input type="color" id="obj-color" value="#5588bb"></div>
+      <div class="row"><label>Size</label><input type="range" id="obj-size" min="0.1" max="2.0" step="0.05" value="0.5"><span class="rv" id="obj-size-v">0.50</span></div>
+    </div>
+
+    <!-- Placed objects + selected editor -->
+    <div class="ps">
+      <h3>Placed Objects <span style="font-size:9px;color:#666;text-transform:none;font-weight:400">(click to select &amp; move)</span></h3>
+      <div class="obj-list" id="obj-list"><div class="empty-list" id="obj-empty">No objects placed yet</div></div>
+      <div id="sel-obj-editor">
+        <div class="sel-title" id="sel-obj-title">Selected: --</div>
+        <div style="font-size:10px;color:#666;margin-bottom:6px">Position</div>
+        <div class="row"><label>X</label><input type="number" id="sel-x" step="0.1"></div>
+        <div class="row"><label>Y</label><input type="number" id="sel-y" step="0.1"></div>
+        <div class="row"><label>Z</label><input type="number" id="sel-z" step="0.1"></div>
+        <div style="font-size:10px;color:#666;margin:6px 0 6px">Scale</div>
+        <div class="row"><label>Size</label><input type="range" id="sel-scale" min="0.1" max="4.0" step="0.05" value="1"><span class="rv" id="sel-scale-v">1.00</span></div>
+        <div style="font-size:10px;color:#666;margin:6px 0 6px">Rotation (degrees)</div>
+        <div class="row"><label>Rot X</label><input type="range" id="sel-rx" min="-180" max="180" step="1" value="0"><span class="rv" id="sel-rx-v">0</span></div>
+        <div class="row"><label>Rot Y</label><input type="range" id="sel-ry" min="-180" max="180" step="1" value="0"><span class="rv" id="sel-ry-v">0</span></div>
+        <div class="row"><label>Rot Z</label><input type="range" id="sel-rz" min="-180" max="180" step="1" value="0"><span class="rv" id="sel-rz-v">0</span></div>
+        <button class="btn btn-sm" id="sel-deselect" style="width:100%;margin-top:6px">Deselect (Esc)</button>
+      </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Marker A -->
+    <div class="ps">
+      <h3><span class="marker-dot" id="marker-a-dot" style="background:#ff4444"></span> Marker A</h3>
+      <div class="row"><label>X</label><input type="number" id="ma-x" value="0.8" step="0.1"></div>
+      <div class="row"><label>Y</label><input type="number" id="ma-y" value="1.5" step="0.1"></div>
+      <div class="row"><label>Z</label><input type="number" id="ma-z" value="0.3" step="0.1"></div>
+      <div class="row"><label>Color</label><input type="color" id="ma-color" value="#ff4444"></div>
+      <button class="btn btn-sm" id="place-ma" style="width:100%">Click to Place</button>
+    </div>
+
+    <!-- Marker B -->
+    <div class="ps">
+      <h3><span class="marker-dot" id="marker-b-dot" style="background:#44aaff"></span> Marker B</h3>
+      <div class="row"><label>X</label><input type="number" id="mb-x" value="-0.8" step="0.1"></div>
+      <div class="row"><label>Y</label><input type="number" id="mb-y" value="0.5" step="0.1"></div>
+      <div class="row"><label>Z</label><input type="number" id="mb-z" value="0.3" step="0.1"></div>
+      <div class="row"><label>Color</label><input type="color" id="mb-color" value="#44aaff"></div>
+      <button class="btn btn-sm" id="place-mb" style="width:100%">Click to Place</button>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Line -->
+    <div class="ps">
+      <h3>Connection Line</h3>
+      <div class="row"><label>Show</label><div class="toggle-switch"><input type="checkbox" id="show-line" checked><span class="toggle-slider"></span></div></div>
+      <div class="row"><label>Color</label><input type="color" id="line-color" value="#ffffff"></div>
+      <div class="row"><label>Dash</label><input type="range" id="dash-size" min="0.02" max="0.5" step="0.01" value="0.1"><span class="rv" id="dash-size-v">0.10</span></div>
+      <div class="row"><label>Gap</label><input type="range" id="gap-size" min="0.01" max="0.3" step="0.01" value="0.05"><span class="rv" id="gap-size-v">0.05</span></div>
+      <div class="row"><label>Marker sz</label><input type="range" id="marker-size" min="0.02" max="0.3" step="0.01" value="0.06"><span class="rv" id="marker-size-v">0.06</span></div>
+      <div class="row"><label>Pulse</label><input type="range" id="pulse-speed" min="0.5" max="8" step="0.5" value="3"><span class="rv" id="pulse-speed-v">3.0</span></div>
+    </div>
+
+    <div class="distance-display" id="distance-display">Distance: --</div>
+    <p class="info-text">Place shapes, click objects in the list to select and move them. Save scenes with the hamburger menu.</p>
+  </div>
+
+  <script type="module">
+    import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+    import * as THREE from 'three';
+
+    // =========================================================================
+    // DOM refs
+    // =========================================================================
+    const $ = (id) => document.getElementById(id);
+    const viewportContainer = $('viewport-container');
+    const placementIndicator = $('placement-indicator');
+    const scenesDrawer = $('scenes-drawer');
+    const sceneListEl = $('scene-list');
+    const sceneEmptyEl = $('scene-empty');
+
+    const roomIn = {
+      shape: $('room-shape'),
+      w: $('room-width'), wN: $('room-width-n'),
+      d: $('room-depth'), dN: $('room-depth-n'),
+      h: $('room-height'), hN: $('room-height-n')
+    };
+    const viewIn = {
+      zoom: $('view-zoom'), zoomV: $('view-zoom-v'),
+      fov: $('view-fov'), fovV: $('view-fov-v')
+    };
+    const objIn = { color: $('obj-color'), size: $('obj-size'), sizeV: $('obj-size-v') };
+    const objListEl = $('obj-list');
+    const objEmptyEl = $('obj-empty');
+    const shapePalette = $('shape-palette');
+    const selEditor = $('sel-obj-editor');
+    const selTitle = $('sel-obj-title');
+    const selX = $('sel-x'), selY = $('sel-y'), selZ = $('sel-z');
+    const selScale = $('sel-scale'), selScaleV = $('sel-scale-v');
+    const selRX = $('sel-rx'), selRXV = $('sel-rx-v');
+    const selRY = $('sel-ry'), selRYV = $('sel-ry-v');
+    const selRZ = $('sel-rz'), selRZV = $('sel-rz-v');
+
+    const maIn = { x: $('ma-x'), y: $('ma-y'), z: $('ma-z'), color: $('ma-color'), dot: $('marker-a-dot') };
+    const mbIn = { x: $('mb-x'), y: $('mb-y'), z: $('mb-z'), color: $('mb-color'), dot: $('marker-b-dot') };
+    const lineIn = {
+      show: $('show-line'), color: $('line-color'),
+      dash: $('dash-size'), dashV: $('dash-size-v'),
+      gap: $('gap-size'), gapV: $('gap-size-v'),
+      mSize: $('marker-size'), mSizeV: $('marker-size-v'),
+      pulse: $('pulse-speed'), pulseV: $('pulse-speed-v')
+    };
+    const distanceDisplay = $('distance-display');
+    const placeMaBtn = $('place-ma'), placeMbBtn = $('place-mb');
+
+    // =========================================================================
+    // State
+    // =========================================================================
+    let placementMode = null;  // 'marker-a'|'marker-b'|'object'|null
+    let selectedShape = null;
+    let placedObjects = [];    // { id, shape, mesh, size, color }
+    let idGen = 0;
+    let selectedEntry = null;  // currently selected placed object
+    let currentSceneId = null; // id of loaded scene in localStorage
+    const STORAGE_KEY = 'sos_room_scenes';
+
+    // =========================================================================
+    // Three.js globals
+    // =========================================================================
+    let renderer, camera, scene, controls, clock;
+    let roomGroup, lightGroup;
+    let markerA, markerB, connectionLine;
+    const raycastTargets = [];
+    const roomSurfaces = [];
+
+    // =========================================================================
+    // Renderer / camera / controls
+    // =========================================================================
+    function initRenderer() {
+      const rect = viewportContainer.getBoundingClientRect();
+      const w = Math.floor(rect.width), h = Math.floor(rect.height);
+      const root = document.createElement('div');
+      root.style.cssText = 'width:' + w + 'px;height:' + h + 'px;position:relative';
+      viewportContainer.appendChild(root);
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(w, h);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      root.appendChild(renderer.domElement);
+      return { w, h };
+    }
+
+    function initCamera(w, h) {
+      camera = new THREE.PerspectiveCamera(55, w / h, 0.05, 100);
+      camera.position.set(5, 4, 5);
+      camera.lookAt(0, 1, 0);
+    }
+
+    function initControls() {
+      controls = new GaussianSplats3D.OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 1, 0);
+      controls.rotateSpeed = 0.6;
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.minDistance = 1;
+      controls.maxDistance = 25;
+      controls.maxPolarAngle = Math.PI * 0.88;
+      controls.update();
+    }
+
+    // =========================================================================
+    // Room
+    // =========================================================================
+    function getRoomDims() {
+      return {
+        w: parseFloat(roomIn.w.value), d: parseFloat(roomIn.d.value),
+        h: parseFloat(roomIn.h.value), shape: roomIn.shape.value
+      };
+    }
+
+    function addSurface(mesh) { roomGroup.add(mesh); raycastTargets.push(mesh); roomSurfaces.push(mesh); }
+
+    function rebuildRoom() {
+      if (roomGroup) {
+        roomGroup.traverse((c) => {
+          let i = raycastTargets.indexOf(c); if (i >= 0) raycastTargets.splice(i, 1);
+          i = roomSurfaces.indexOf(c); if (i >= 0) roomSurfaces.splice(i, 1);
+        });
+        scene.remove(roomGroup);
+      }
+      roomGroup = new THREE.Group();
+      const { w, d, h, shape } = getRoomDims();
+      const floorMat = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.85 });
+      const ceilMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.9 });
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.8 });
+      const bbMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.6 });
+
+      if (shape === 'rectangular') {
+        const hw = w / 2, hd = d / 2;
+        const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorMat);
+        fl.rotation.x = -Math.PI / 2; fl.receiveShadow = true; addSurface(fl);
+        const cl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), ceilMat);
+        cl.position.y = h; cl.rotation.x = Math.PI / 2; cl.receiveShadow = true; addSurface(cl);
+        [
+          { p: [0, h/2, -hd], r: [0,0,0], s: [w,h] },
+          { p: [0, h/2, hd], r: [0,Math.PI,0], s: [w,h] },
+          { p: [-hw, h/2, 0], r: [0,Math.PI/2,0], s: [d,h] },
+          { p: [hw, h/2, 0], r: [0,-Math.PI/2,0], s: [d,h] }
+        ].forEach((wd) => {
+          const wl = new THREE.Mesh(new THREE.PlaneGeometry(wd.s[0], wd.s[1]), wallMat.clone());
+          wl.position.fromArray(wd.p); wl.rotation.set(wd.r[0], wd.r[1], wd.r[2]);
+          wl.receiveShadow = true; addSurface(wl);
+        });
+        const bbH = 0.06, bbD = 0.015;
+        [[w,bbH,bbD,0,bbH/2,-hd+bbD/2],[w,bbH,bbD,0,bbH/2,hd-bbD/2],
+         [bbD,bbH,d,-hw+bbD/2,bbH/2,0],[bbD,bbH,d,hw-bbD/2,bbH/2,0]].forEach((b) => {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(b[0],b[1],b[2]), bbMat);
+          m.position.set(b[3],b[4],b[5]); roomGroup.add(m);
+        });
+      } else {
+        const radius = Math.max(w, d) / 2, seg = 48;
+        const fl = new THREE.Mesh(new THREE.CircleGeometry(radius, seg), floorMat);
+        fl.rotation.x = -Math.PI / 2; fl.receiveShadow = true; addSurface(fl);
+        const cl = new THREE.Mesh(new THREE.CircleGeometry(radius, seg), ceilMat);
+        cl.position.y = h; cl.rotation.x = Math.PI / 2; cl.receiveShadow = true; addSurface(cl);
+        const wg = new THREE.CylinderGeometry(radius, radius, h, seg, 1, true);
+        const wm = new THREE.Mesh(wg, wallMat.clone());
+        wm.material.side = THREE.BackSide; wm.position.y = h / 2; wm.receiveShadow = true; addSurface(wm);
+        const bb = new THREE.Mesh(new THREE.TorusGeometry(radius - 0.005, 0.03, 8, seg), bbMat);
+        bb.position.y = 0.03; bb.rotation.x = Math.PI / 2; roomGroup.add(bb);
+      }
+      scene.add(roomGroup);
+      rebuildLighting();
+    }
+
+    // =========================================================================
+    // Lighting
+    // =========================================================================
+    function rebuildLighting() {
+      if (lightGroup) scene.remove(lightGroup);
+      lightGroup = new THREE.Group();
+      const { h } = getRoomDims();
+      lightGroup.add(new THREE.AmbientLight(0xffffff, 0.45));
+      const key = new THREE.PointLight(0xfff8e8, 1.2, 18, 1);
+      key.position.set(0, h - 0.2, 0); key.castShadow = true;
+      key.shadow.mapSize.set(1024, 1024); key.shadow.radius = 4; lightGroup.add(key);
+      const fill = new THREE.PointLight(0xe8eeff, 0.35, 12, 1);
+      fill.position.set(2.5, h * 0.6, 2); lightGroup.add(fill);
+      const acc = new THREE.PointLight(0xffe8d0, 0.25, 10, 1);
+      acc.position.set(-2, h * 0.45, -1.5); lightGroup.add(acc);
+      const fg = new THREE.CylinderGeometry(0.12, 0.12, 0.025, 16);
+      const fm = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff8e8, emissiveIntensity: 0.8, roughness: 0.3 });
+      const fix = new THREE.Mesh(fg, fm); fix.position.set(0, h - 0.013, 0); lightGroup.add(fix);
+      scene.add(lightGroup);
+    }
+
+    // =========================================================================
+    // Humanoid
+    // =========================================================================
+    function buildHumanoid(s, color) {
+      const g = new THREE.Group();
+      const skin = new THREE.MeshStandardMaterial({ color: 0x8d7b68, roughness: 0.7 });
+      const cloth = new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
+      const pants = new THREE.MeshStandardMaterial({ color: 0x3a3a4a, roughness: 0.85 });
+      const shoe = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
+      function p(geo, mat, x, y, z) {
+        const m = new THREE.Mesh(geo, mat); m.position.set(x*s,y*s,z*s); m.scale.setScalar(s);
+        m.castShadow = true; g.add(m);
+      }
+      p(new THREE.BoxGeometry(.1,.06,.2),shoe,-.08,.03,.03);
+      p(new THREE.BoxGeometry(.1,.06,.2),shoe,.08,.03,.03);
+      p(new THREE.CylinderGeometry(.04,.035,.4,8),pants,-.08,.26,0);
+      p(new THREE.CylinderGeometry(.04,.035,.4,8),pants,.08,.26,0);
+      p(new THREE.CylinderGeometry(.05,.04,.42,8),pants,-.08,.67,0);
+      p(new THREE.CylinderGeometry(.05,.04,.42,8),pants,.08,.67,0);
+      p(new THREE.BoxGeometry(.3,.15,.18),pants,0,.96,0);
+      p(new THREE.BoxGeometry(.35,.55,.2),cloth,0,1.31,0);
+      p(new THREE.CylinderGeometry(.035,.035,.3,8),cloth,-.255,1.43,0);
+      p(new THREE.CylinderGeometry(.035,.035,.3,8),cloth,.255,1.43,0);
+      p(new THREE.CylinderGeometry(.03,.025,.28,8),skin,-.255,1.14,0);
+      p(new THREE.CylinderGeometry(.03,.025,.28,8),skin,.255,1.14,0);
+      p(new THREE.SphereGeometry(.035,8,8),skin,-.255,.97,0);
+      p(new THREE.SphereGeometry(.035,8,8),skin,.255,.97,0);
+      p(new THREE.CylinderGeometry(.04,.04,.06,8),skin,0,1.62,0);
+      p(new THREE.SphereGeometry(.12,16,12),skin,0,1.77,0);
+      return g;
+    }
+
+    // =========================================================================
+    // Object factory + list
+    // =========================================================================
+    function createShapeMesh(shape, size, color) {
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05 });
+      let m;
+      switch (shape) {
+        case 'cube': m = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat); break;
+        case 'sphere': m = new THREE.Mesh(new THREE.SphereGeometry(size/2,24,18), mat); break;
+        case 'cylinder': m = new THREE.Mesh(new THREE.CylinderGeometry(size/2,size/2,size,24), mat); break;
+        case 'cone': m = new THREE.Mesh(new THREE.ConeGeometry(size/2,size,24), mat); break;
+        case 'pyramid': m = new THREE.Mesh(new THREE.ConeGeometry(size/2,size,4), mat); m.rotation.y = Math.PI/4; break;
+        case 'human': return buildHumanoid(size, color);
+        default: m = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat);
+      }
+      m.castShadow = true; m.receiveShadow = true;
+      return m;
+    }
+
+    function placeObject(shape, point, normal) {
+      const size = parseFloat(objIn.size.value);
+      const color = new THREE.Color(objIn.color.value);
+      const obj = createShapeMesh(shape, size, color);
+      const offset = (shape === 'human') ? 0 : size / 2;
+      obj.position.copy(point);
+      if (normal) obj.position.addScaledVector(normal, offset);
+      obj.castShadow = true;
+      scene.add(obj);
+      const id = ++idGen;
+      const entry = { id, shape, mesh: obj, size, color: objIn.color.value, scaleMultiplier: 1 };
+      placedObjects.push(entry);
+      obj.traverse((c) => { if (c.isMesh) raycastTargets.push(c); });
+      renderObjectList();
+      return entry;
+    }
+
+    function removeObject(id) {
+      if (selectedEntry && selectedEntry.id === id) deselectObject();
+      const idx = placedObjects.findIndex((o) => o.id === id);
+      if (idx < 0) return;
+      const e = placedObjects[idx];
+      e.mesh.traverse((c) => {
+        if (c.isMesh) { const ri = raycastTargets.indexOf(c); if (ri >= 0) raycastTargets.splice(ri, 1); }
+      });
+      scene.remove(e.mesh);
+      placedObjects.splice(idx, 1);
+      renderObjectList();
+    }
+
+    function clearAllObjects() {
+      while (placedObjects.length > 0) removeObject(placedObjects[0].id);
+    }
+
+    function renderObjectList() {
+      objListEl.innerHTML = '';
+      if (placedObjects.length === 0) { objListEl.appendChild(objEmptyEl); objEmptyEl.style.display = ''; return; }
+      objEmptyEl.style.display = 'none';
+      placedObjects.forEach((o) => {
+        const el = document.createElement('div');
+        el.className = 'obj-item' + (selectedEntry && selectedEntry.id === o.id ? ' selected' : '');
+        el.innerHTML =
+          '<span class="obj-swatch" style="background:' + o.color + '"></span>' +
+          '<span class="obj-name">' + o.shape + ' #' + o.id + '</span>' +
+          '<button class="obj-del" title="Remove">&times;</button>';
+        el.addEventListener('click', (e) => {
+          if (e.target.classList.contains('obj-del')) return;
+          selectObject(o);
+        });
+        el.querySelector('.obj-del').addEventListener('click', (e) => { e.stopPropagation(); removeObject(o.id); });
+        objListEl.appendChild(el);
+      });
+    }
+
+    // =========================================================================
+    // Object selection + move
+    // =========================================================================
+    function selectObject(entry) {
+      if (selectedEntry) deselectObject();
+      exitPlacement();
+      selectedEntry = entry;
+      controls.enabled = false;
+      highlightEntry(entry, true);
+      selEditor.classList.add('visible');
+      selTitle.textContent = 'Selected: ' + entry.shape + ' #' + entry.id;
+      syncSelInputs();
+      renderObjectList();
+      renderer.domElement.style.cursor = 'move';
+      placementIndicator.style.display = 'block';
+      placementIndicator.textContent = 'Click a surface to move ' + entry.shape + ' #' + entry.id;
+    }
+
+    function deselectObject() {
+      if (!selectedEntry) return;
+      highlightEntry(selectedEntry, false);
+      selectedEntry = null;
+      controls.enabled = true;
+      selEditor.classList.remove('visible');
+      renderObjectList();
+      renderer.domElement.style.cursor = 'default';
+      placementIndicator.style.display = 'none';
+    }
+
+    function syncSelInputs() {
+      if (!selectedEntry) return;
+      selX.value = selectedEntry.mesh.position.x.toFixed(2);
+      selY.value = selectedEntry.mesh.position.y.toFixed(2);
+      selZ.value = selectedEntry.mesh.position.z.toFixed(2);
+      // Scale: ratio of current scale to original size
+      const curScale = selectedEntry.scaleMultiplier || 1;
+      selScale.value = curScale;
+      selScaleV.textContent = curScale.toFixed(2);
+      // Rotation in degrees
+      const r = selectedEntry.mesh.rotation;
+      selRX.value = Math.round(THREE.MathUtils.radToDeg(r.x));
+      selRY.value = Math.round(THREE.MathUtils.radToDeg(r.y));
+      selRZ.value = Math.round(THREE.MathUtils.radToDeg(r.z));
+      selRXV.textContent = selRX.value;
+      selRYV.textContent = selRY.value;
+      selRZV.textContent = selRZ.value;
+    }
+
+    function applySelPosition() {
+      if (!selectedEntry) return;
+      selectedEntry.mesh.position.set(
+        parseFloat(selX.value) || 0, parseFloat(selY.value) || 0, parseFloat(selZ.value) || 0
+      );
+    }
+
+    function applySelScale() {
+      if (!selectedEntry) return;
+      const s = parseFloat(selScale.value) || 1;
+      selScaleV.textContent = s.toFixed(2);
+      selectedEntry.scaleMultiplier = s;
+      selectedEntry.mesh.scale.setScalar(s);
+    }
+
+    function applySelRotation() {
+      if (!selectedEntry) return;
+      const rx = parseFloat(selRX.value) || 0;
+      const ry = parseFloat(selRY.value) || 0;
+      const rz = parseFloat(selRZ.value) || 0;
+      selRXV.textContent = Math.round(rx);
+      selRYV.textContent = Math.round(ry);
+      selRZV.textContent = Math.round(rz);
+      selectedEntry.mesh.rotation.set(
+        THREE.MathUtils.degToRad(rx),
+        THREE.MathUtils.degToRad(ry),
+        THREE.MathUtils.degToRad(rz)
+      );
+    }
+
+    function highlightEntry(entry, on) {
+      if (!entry) return;
+      entry.mesh.traverse((c) => {
+        if (c.isMesh && c.material && c.material.emissive) c.material.emissive.setHex(on ? 0x333355 : 0x000000);
+      });
+    }
+
+    // =========================================================================
+    // Markers
+    // =========================================================================
+    function createMarker(color, pos) {
+      const sz = parseFloat(lineIn.mSize.value);
+      const g = new THREE.Group();
+      const core = new THREE.Mesh(new THREE.SphereGeometry(sz,24,24), new THREE.MeshBasicMaterial({ color: new THREE.Color(color) }));
+      core.name = 'core'; core.renderOrder = 999; g.add(core);
+      const glow = new THREE.Mesh(new THREE.SphereGeometry(sz*2.2,24,24),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.22, depthWrite: false }));
+      glow.name = 'glow'; glow.renderOrder = 998; g.add(glow);
+      g.position.fromArray(pos);
+      return g;
+    }
+    function createConnectionLine() {
+      return new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({
+        color: new THREE.Color(lineIn.color.value),
+        dashSize: parseFloat(lineIn.dash.value), gapSize: parseFloat(lineIn.gap.value)
+      }));
+    }
+    function updateLine() {
+      if (!markerA || !markerB || !connectionLine) return;
+      connectionLine.geometry.dispose();
+      connectionLine.geometry = new THREE.BufferGeometry().setFromPoints([markerA.position.clone(), markerB.position.clone()]);
+      connectionLine.computeLineDistances();
+      connectionLine.visible = lineIn.show.checked;
+      distanceDisplay.textContent = 'Distance: ' + markerA.position.distanceTo(markerB.position).toFixed(3) + ' m';
+    }
+    function updateMarkerGeo(mg, sz) {
+      const c = mg.getObjectByName('core'), gl = mg.getObjectByName('glow');
+      if (c) { c.geometry.dispose(); c.geometry = new THREE.SphereGeometry(sz,24,24); }
+      if (gl) { gl.geometry.dispose(); gl.geometry = new THREE.SphereGeometry(sz*2.2,24,24); }
+    }
+    function updateMarkerColor(mg, hex, dot) {
+      const col = new THREE.Color(hex);
+      const c = mg.getObjectByName('core'), gl = mg.getObjectByName('glow');
+      if (c) c.material.color.copy(col); if (gl) gl.material.color.copy(col);
+      if (dot) dot.style.background = hex;
+    }
+    function animateMarkers(t) {
+      const spd = parseFloat(lineIn.pulse.value);
+      const cs = 1+.3*Math.sin(t*spd), gs = 1+.5*Math.sin(t*spd), go = .12+.14*Math.sin(t*spd);
+      [markerA, markerB].forEach((m) => {
+        if (!m) return;
+        const c = m.getObjectByName('core'), gl = m.getObjectByName('glow');
+        if (c) c.scale.setScalar(cs);
+        if (gl) { gl.scale.setScalar(gs); gl.material.opacity = go; }
+      });
+    }
+    function syncFromMarker(m, inp) {
+      inp.x.value = m.position.x.toFixed(2);
+      inp.y.value = m.position.y.toFixed(2);
+      inp.z.value = m.position.z.toFixed(2);
+    }
+    function syncToMarker(m, inp) {
+      m.position.set(parseFloat(inp.x.value)||0, parseFloat(inp.y.value)||0, parseFloat(inp.z.value)||0);
+      updateLine();
+    }
+
+    // =========================================================================
+    // Click handling (placement + selection + move)
+    // =========================================================================
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const mouseDown = new THREE.Vector2();
+    const DRAG_TH = 5;
+
+    function screenToNDC(e) {
+      const r = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    }
+
+    function findEntryByMesh(hitMesh) {
+      for (const e of placedObjects) { let f = false; e.mesh.traverse((c) => { if (c === hitMesh) f = true; }); if (f) return e; }
+      return null;
+    }
+
+    function onMouseDown(e) { mouseDown.set(e.clientX, e.clientY); }
+
+    function onClick(e) {
+      const dx = e.clientX - mouseDown.x, dy = e.clientY - mouseDown.y;
+      if (Math.sqrt(dx*dx+dy*dy) > DRAG_TH) return;
+
+      screenToNDC(e);
+      raycaster.setFromCamera(mouse, camera);
+
+      // If an object is selected, clicks move it to a surface
+      if (selectedEntry) {
+        const hits = raycaster.intersectObjects(roomSurfaces, false);
+        if (hits.length > 0) {
+          const hit = hits[0];
+          const pt = hit.point.clone();
+          let normal = null;
+          if (hit.face) { normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld); pt.addScaledVector(normal, 0.005); }
+          const offset = (selectedEntry.shape === 'human') ? 0 : selectedEntry.size / 2;
+          if (normal) pt.addScaledVector(normal, offset);
+          selectedEntry.mesh.position.copy(pt);
+          syncSelInputs();
+        }
+        return;
+      }
+
+      // Placement mode
+      if (placementMode) {
+        const hits = raycaster.intersectObjects(raycastTargets, false);
+        if (hits.length === 0) return;
+        const hit = hits[0];
+        const pt = hit.point.clone();
+        let normal = null;
+        if (hit.face) { normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld); pt.addScaledVector(normal, 0.005); }
+        if (placementMode === 'marker-a') { markerA.position.copy(pt); syncFromMarker(markerA, maIn); updateLine(); }
+        else if (placementMode === 'marker-b') { markerB.position.copy(pt); syncFromMarker(markerB, mbIn); updateLine(); }
+        else if (placementMode === 'object' && selectedShape) { placeObject(selectedShape, pt, normal); }
+        if (placementMode !== 'object') exitPlacement();
+        return;
+      }
+
+      // No mode: click on object to select it
+      const hits = raycaster.intersectObjects(raycastTargets, true);
+      if (hits.length > 0) {
+        const entry = findEntryByMesh(hits[0].object);
+        if (entry) { selectObject(entry); return; }
+      }
+    }
+
+    function enterPlacement(mode) {
+      deselectObject();
+      if (placementMode === mode) { exitPlacement(); return; }
+      placementMode = mode;
+      renderer.domElement.style.cursor = 'crosshair';
+      placementIndicator.style.display = 'block';
+      placeMaBtn.classList.remove('active'); placeMbBtn.classList.remove('active');
+      document.querySelectorAll('.shape-btn').forEach((b) => b.classList.remove('active'));
+      if (mode === 'marker-a') { placementIndicator.textContent = 'Click surface to place Marker A'; placeMaBtn.classList.add('active'); }
+      else if (mode === 'marker-b') { placementIndicator.textContent = 'Click surface to place Marker B'; placeMbBtn.classList.add('active'); }
+      else if (mode === 'object') {
+        placementIndicator.textContent = 'Click surface to place ' + selectedShape;
+        const btn = shapePalette.querySelector('[data-shape="'+selectedShape+'"]'); if (btn) btn.classList.add('active');
+      }
+    }
+
+    function exitPlacement() {
+      placementMode = null; selectedShape = null;
+      renderer.domElement.style.cursor = 'default';
+      placementIndicator.style.display = 'none';
+      placeMaBtn.classList.remove('active'); placeMbBtn.classList.remove('active');
+      document.querySelectorAll('.shape-btn').forEach((b) => b.classList.remove('active'));
+    }
+
+    // =========================================================================
+    // View helpers
+    // =========================================================================
+    function setCameraDistance(d) {
+      const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+      camera.position.copy(controls.target).addScaledVector(dir, d); controls.update();
+    }
+    function syncZoomSlider() {
+      const d = camera.position.distanceTo(controls.target);
+      viewIn.zoom.value = d; viewIn.zoomV.textContent = d.toFixed(1);
+    }
+    function setCameraView(px,py,pz,tx,ty,tz) {
+      camera.position.set(px,py,pz); controls.target.set(tx,ty,tz); controls.update(); syncZoomSlider();
+    }
+
+    // =========================================================================
+    // localStorage scene CRUD
+    // =========================================================================
+    function loadAllScenes() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+      catch { return []; }
+    }
+    function saveAllScenes(scenes) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(scenes));
+    }
+
+    function serializeScene() {
+      return {
+        room: { shape: roomIn.shape.value, w: parseFloat(roomIn.w.value), d: parseFloat(roomIn.d.value), h: parseFloat(roomIn.h.value) },
+        objects: placedObjects.map((o) => ({
+          shape: o.shape, size: o.size, color: o.color,
+          position: [o.mesh.position.x, o.mesh.position.y, o.mesh.position.z],
+          scale: o.scaleMultiplier || 1,
+          rotation: [o.mesh.rotation.x, o.mesh.rotation.y, o.mesh.rotation.z]
+        })),
+        markers: {
+          a: { position: [markerA.position.x, markerA.position.y, markerA.position.z], color: maIn.color.value },
+          b: { position: [markerB.position.x, markerB.position.y, markerB.position.z], color: mbIn.color.value }
+        },
+        line: {
+          show: lineIn.show.checked, color: lineIn.color.value,
+          dash: parseFloat(lineIn.dash.value), gap: parseFloat(lineIn.gap.value),
+          mSize: parseFloat(lineIn.mSize.value), pulse: parseFloat(lineIn.pulse.value)
+        }
+      };
+    }
+
+    function hydrateScene(data) {
+      deselectObject();
+      exitPlacement();
+      clearAllObjects();
+
+      // Room
+      roomIn.shape.value = data.room.shape;
+      roomIn.w.value = roomIn.wN.value = data.room.w;
+      roomIn.d.value = roomIn.dN.value = data.room.d;
+      roomIn.h.value = roomIn.hN.value = data.room.h;
+      rebuildRoom();
+
+      // Objects
+      data.objects.forEach((o) => {
+        const color = new THREE.Color(o.color);
+        const mesh = createShapeMesh(o.shape, o.size, color);
+        mesh.position.fromArray(o.position);
+        const sm = o.scale || 1;
+        mesh.scale.setScalar(sm);
+        if (o.rotation) mesh.rotation.set(o.rotation[0], o.rotation[1], o.rotation[2]);
+        mesh.castShadow = true;
+        scene.add(mesh);
+        const id = ++idGen;
+        placedObjects.push({ id, shape: o.shape, mesh, size: o.size, color: o.color, scaleMultiplier: sm });
+        mesh.traverse((c) => { if (c.isMesh) raycastTargets.push(c); });
+      });
+      renderObjectList();
+
+      // Markers
+      markerA.position.fromArray(data.markers.a.position);
+      maIn.color.value = data.markers.a.color;
+      updateMarkerColor(markerA, data.markers.a.color, maIn.dot);
+      syncFromMarker(markerA, maIn);
+
+      markerB.position.fromArray(data.markers.b.position);
+      mbIn.color.value = data.markers.b.color;
+      updateMarkerColor(markerB, data.markers.b.color, mbIn.dot);
+      syncFromMarker(markerB, mbIn);
+
+      // Line
+      lineIn.show.checked = data.line.show;
+      lineIn.color.value = data.line.color;
+      connectionLine.material.color.set(data.line.color);
+      lineIn.dash.value = data.line.dash; lineIn.dashV.textContent = data.line.dash.toFixed(2);
+      connectionLine.material.dashSize = data.line.dash;
+      lineIn.gap.value = data.line.gap; lineIn.gapV.textContent = data.line.gap.toFixed(2);
+      connectionLine.material.gapSize = data.line.gap;
+      lineIn.mSize.value = data.line.mSize; lineIn.mSizeV.textContent = data.line.mSize.toFixed(2);
+      updateMarkerGeo(markerA, data.line.mSize); updateMarkerGeo(markerB, data.line.mSize);
+      lineIn.pulse.value = data.line.pulse; lineIn.pulseV.textContent = data.line.pulse.toFixed(1);
+      updateLine();
+    }
+
+    function saveCurrentScene() {
+      const scenes = loadAllScenes();
+      const data = serializeScene();
+      if (currentSceneId) {
+        const idx = scenes.findIndex((s) => s.id === currentSceneId);
+        if (idx >= 0) { scenes[idx].data = data; scenes[idx].updatedAt = Date.now(); saveAllScenes(scenes); renderSceneList(); return; }
+      }
+      // New scene
+      const id = 'scene_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const entry = { id, name: 'Scene ' + (scenes.length + 1), data, createdAt: Date.now(), updatedAt: Date.now() };
+      scenes.push(entry);
+      currentSceneId = id;
+      saveAllScenes(scenes);
+      renderSceneList();
+    }
+
+    function loadSceneById(id) {
+      const scenes = loadAllScenes();
+      const entry = scenes.find((s) => s.id === id);
+      if (!entry) return;
+      currentSceneId = id;
+      hydrateScene(entry.data);
+      renderSceneList();
+    }
+
+    function deleteSceneById(id) {
+      const scenes = loadAllScenes().filter((s) => s.id !== id);
+      if (currentSceneId === id) currentSceneId = null;
+      saveAllScenes(scenes);
+      renderSceneList();
+    }
+
+    function renameScene(id) {
+      const scenes = loadAllScenes();
+      const entry = scenes.find((s) => s.id === id);
+      if (!entry) return;
+      const name = prompt('Rename scene:', entry.name);
+      if (name && name.trim()) { entry.name = name.trim(); saveAllScenes(scenes); renderSceneList(); }
+    }
+
+    function newScene() {
+      deselectObject(); exitPlacement(); clearAllObjects();
+      currentSceneId = null;
+      roomIn.shape.value = 'rectangular';
+      roomIn.w.value = roomIn.wN.value = 6;
+      roomIn.d.value = roomIn.dN.value = 6;
+      roomIn.h.value = roomIn.hN.value = 3.5;
+      rebuildRoom();
+      markerA.position.set(0.8, 1.5, 0.3); syncFromMarker(markerA, maIn);
+      markerB.position.set(-0.8, 0.5, 0.3); syncFromMarker(markerB, mbIn);
+      updateLine();
+      renderSceneList();
+    }
+
+    function renderSceneList() {
+      sceneListEl.innerHTML = '';
+      const scenes = loadAllScenes();
+      if (scenes.length === 0) { sceneListEl.appendChild(sceneEmptyEl); sceneEmptyEl.style.display = ''; return; }
+      sceneEmptyEl.style.display = 'none';
+      scenes.forEach((s) => {
+        const el = document.createElement('div');
+        el.className = 'scene-item' + (s.id === currentSceneId ? ' active' : '');
+        el.innerHTML =
+          '<span class="scene-name">' + s.name + '</span>' +
+          '<span class="scene-actions">' +
+          '<button class="sc-rename" title="Rename">&#9998;</button>' +
+          '<button class="sc-del" title="Delete">&times;</button>' +
+          '</span>';
+        el.addEventListener('click', (e) => {
+          if (e.target.classList.contains('sc-rename') || e.target.classList.contains('sc-del')) return;
+          loadSceneById(s.id);
+        });
+        el.querySelector('.sc-rename').addEventListener('click', (e) => { e.stopPropagation(); renameScene(s.id); });
+        el.querySelector('.sc-del').addEventListener('click', (e) => { e.stopPropagation(); deleteSceneById(s.id); });
+        sceneListEl.appendChild(el);
+      });
+    }
+
+    // =========================================================================
+    // Events
+    // =========================================================================
+    function bindEvents() {
+      // Hamburger
+      $('hamburger').addEventListener('click', () => scenesDrawer.classList.toggle('open'));
+
+      // Scene buttons
+      $('sc-new').addEventListener('click', newScene);
+      $('sc-save').addEventListener('click', saveCurrentScene);
+      $('sc-save-top').addEventListener('click', saveCurrentScene);
+
+      // Room
+      roomIn.w.addEventListener('input', () => { roomIn.wN.value = roomIn.w.value; rebuildRoom(); });
+      roomIn.d.addEventListener('input', () => { roomIn.dN.value = roomIn.d.value; rebuildRoom(); });
+      roomIn.h.addEventListener('input', () => { roomIn.hN.value = roomIn.h.value; rebuildRoom(); });
+      roomIn.wN.addEventListener('input', () => { roomIn.w.value = roomIn.wN.value; rebuildRoom(); });
+      roomIn.dN.addEventListener('input', () => { roomIn.d.value = roomIn.dN.value; rebuildRoom(); });
+      roomIn.hN.addEventListener('input', () => { roomIn.h.value = roomIn.hN.value; rebuildRoom(); });
+      roomIn.shape.addEventListener('change', rebuildRoom);
+
+      // View
+      viewIn.zoom.addEventListener('input', () => {
+        const d = parseFloat(viewIn.zoom.value); viewIn.zoomV.textContent = d.toFixed(1); setCameraDistance(d);
+      });
+      viewIn.fov.addEventListener('input', () => {
+        const f = parseFloat(viewIn.fov.value); viewIn.fovV.textContent = f; camera.fov = f; camera.updateProjectionMatrix();
+      });
+      controls.addEventListener('change', syncZoomSlider);
+      const { h } = getRoomDims();
+      $('view-3q').addEventListener('click', () => setCameraView(5,4,5,0,h*.3,0));
+      $('view-front').addEventListener('click', () => setCameraView(0,h*.45,8,0,h*.45,0));
+      $('view-side').addEventListener('click', () => setCameraView(8,h*.45,0,0,h*.45,0));
+      $('view-top').addEventListener('click', () => setCameraView(0,10,.01,0,0,0));
+      $('view-reset').addEventListener('click', () => {
+        setCameraView(5,4,5,0,1,0); viewIn.fov.value=55; viewIn.fovV.textContent='55';
+        camera.fov=55; camera.updateProjectionMatrix();
+      });
+
+      // Object palette
+      shapePalette.querySelectorAll('.shape-btn').forEach((btn) => {
+        btn.addEventListener('click', () => { selectedShape = btn.dataset.shape; enterPlacement('object'); });
+      });
+      objIn.size.addEventListener('input', () => { objIn.sizeV.textContent = parseFloat(objIn.size.value).toFixed(2); });
+
+      // Selected object controls
+      [selX, selY, selZ].forEach((el) => el.addEventListener('input', applySelPosition));
+      selScale.addEventListener('input', applySelScale);
+      [selRX, selRY, selRZ].forEach((el) => el.addEventListener('input', applySelRotation));
+      $('sel-deselect').addEventListener('click', deselectObject);
+
+      // Markers
+      [maIn.x, maIn.y, maIn.z].forEach((el) => el.addEventListener('input', () => syncToMarker(markerA, maIn)));
+      [mbIn.x, mbIn.y, mbIn.z].forEach((el) => el.addEventListener('input', () => syncToMarker(markerB, mbIn)));
+      maIn.color.addEventListener('input', () => updateMarkerColor(markerA, maIn.color.value, maIn.dot));
+      mbIn.color.addEventListener('input', () => updateMarkerColor(markerB, mbIn.color.value, mbIn.dot));
+      placeMaBtn.addEventListener('click', () => enterPlacement('marker-a'));
+      placeMbBtn.addEventListener('click', () => enterPlacement('marker-b'));
+
+      // Line
+      lineIn.show.addEventListener('change', updateLine);
+      lineIn.color.addEventListener('input', () => connectionLine.material.color.set(lineIn.color.value));
+      lineIn.dash.addEventListener('input', () => { lineIn.dashV.textContent = parseFloat(lineIn.dash.value).toFixed(2); connectionLine.material.dashSize = parseFloat(lineIn.dash.value); updateLine(); });
+      lineIn.gap.addEventListener('input', () => { lineIn.gapV.textContent = parseFloat(lineIn.gap.value).toFixed(2); connectionLine.material.gapSize = parseFloat(lineIn.gap.value); updateLine(); });
+      lineIn.mSize.addEventListener('input', () => { const s = parseFloat(lineIn.mSize.value); lineIn.mSizeV.textContent = s.toFixed(2); updateMarkerGeo(markerA,s); updateMarkerGeo(markerB,s); });
+      lineIn.pulse.addEventListener('input', () => { lineIn.pulseV.textContent = parseFloat(lineIn.pulse.value).toFixed(1); });
+
+      // Viewport
+      renderer.domElement.addEventListener('mousedown', onMouseDown);
+      renderer.domElement.addEventListener('click', onClick);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (selectedEntry) deselectObject(); else exitPlacement(); } });
+      window.addEventListener('resize', () => {
+        const r = viewportContainer.getBoundingClientRect();
+        renderer.setSize(Math.floor(r.width), Math.floor(r.height));
+        camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+      });
+    }
+
+    // =========================================================================
+    // Init
+    // =========================================================================
+    function init() {
+      clock = new THREE.Clock();
+      const { w, h } = initRenderer();
+      initCamera(w, h); initControls();
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1a1a2e);
+      rebuildRoom();
+      const aPos = [parseFloat(maIn.x.value), parseFloat(maIn.y.value), parseFloat(maIn.z.value)];
+      const bPos = [parseFloat(mbIn.x.value), parseFloat(mbIn.y.value), parseFloat(mbIn.z.value)];
+      markerA = createMarker(maIn.color.value, aPos);
+      markerB = createMarker(mbIn.color.value, bPos);
+      scene.add(markerA); scene.add(markerB);
+      connectionLine = createConnectionLine();
+      scene.add(connectionLine); updateLine();
+      bindEvents(); syncZoomSlider(); renderSceneList();
+      requestAnimationFrame(loop);
+    }
+
+    function loop() {
+      requestAnimationFrame(loop);
+      controls.update();
+      animateMarkers(clock.getElapsedTime());
+      renderer.render(scene, camera);
+    }
+
+    init();
+  </script>
+</body>
+</html>

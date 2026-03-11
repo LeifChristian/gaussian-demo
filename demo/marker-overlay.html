@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <title>3D Gaussian Splat Marker Overlay</title>
+  <script type="text/javascript" src="js/util.js"></script>
+  <script type="importmap">
+    {
+        "imports": {
+            "three": "./lib/three.module.js",
+            "@mkkellogg/gaussian-splats-3d": "./lib/gaussian-splats-3d.module.js"
+        }
+    }
+  </script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #0a0a0f;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #e0e0e0;
+      display: flex;
+    }
+
+    #viewport-container {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #viewport-container canvas {
+      display: block;
+    }
+
+    #placement-indicator {
+      display: none;
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20, 20, 30, 0.9);
+      border: 1px solid #4a6fa5;
+      border-radius: 6px;
+      padding: 8px 18px;
+      font-size: 13px;
+      color: #8ab4f8;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #control-panel {
+      width: 320px;
+      min-width: 320px;
+      background: #12121a;
+      border-left: 1px solid #2a2a3a;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    #control-panel h2 {
+      font-size: 15px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #8ab4f8;
+      margin-bottom: 4px;
+      border-bottom: 1px solid #2a2a3a;
+      padding-bottom: 10px;
+    }
+
+    .marker-section {
+      background: #1a1a28;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .marker-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .marker-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .coord-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .coord-row label {
+      font-size: 12px;
+      font-weight: 600;
+      width: 16px;
+      color: #999;
+    }
+
+    .coord-row input[type="number"] {
+      flex: 1;
+      background: #0d0d14;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #e0e0e0;
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .coord-row input[type="number"]:focus {
+      outline: none;
+      border-color: #4a6fa5;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .color-row label {
+      font-size: 12px;
+      color: #999;
+    }
+
+    .color-row input[type="color"] {
+      width: 40px;
+      height: 28px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      cursor: pointer;
+      background: transparent;
+      padding: 0;
+    }
+
+    .color-row input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 2px;
+    }
+
+    .color-row input[type="color"]::-webkit-color-swatch {
+      border-radius: 2px;
+      border: none;
+    }
+
+    .btn {
+      padding: 7px 14px;
+      border: 1px solid #333;
+      border-radius: 5px;
+      background: #1e1e2e;
+      color: #ccc;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn:hover {
+      background: #2a2a40;
+      border-color: #4a6fa5;
+    }
+
+    .btn-primary {
+      background: #2a4a7a;
+      border-color: #4a6fa5;
+      color: #dde8f8;
+    }
+
+    .btn-primary:hover {
+      background: #3a5a8a;
+    }
+
+    .btn-place {
+      width: 100%;
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-place.active {
+      background: #3a5a1a;
+      border-color: #6a9a3a;
+      color: #c0e8a0;
+    }
+
+    .line-section {
+      background: #1a1a28;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .line-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .option-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .option-row label {
+      font-size: 12px;
+      color: #999;
+      width: 80px;
+    }
+
+    .option-row input[type="range"] {
+      flex: 1;
+      accent-color: #4a6fa5;
+    }
+
+    .option-row .range-value {
+      font-size: 11px;
+      font-family: 'Courier New', monospace;
+      color: #8ab4f8;
+      width: 36px;
+      text-align: right;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .toggle-row label {
+      font-size: 12px;
+      color: #999;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #333;
+      border-radius: 20px;
+      transition: background 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: #ccc;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background: #4a6fa5;
+    }
+
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(16px);
+    }
+
+    .info-text {
+      font-size: 11px;
+      color: #666;
+      line-height: 1.5;
+      margin-top: 4px;
+    }
+
+    .distance-display {
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+      color: #8ab4f8;
+      background: #0d0d14;
+      border: 1px solid #2a2a3a;
+      border-radius: 4px;
+      padding: 8px 12px;
+      text-align: center;
+    }
+
+    .section-divider {
+      border: none;
+      border-top: 1px solid #2a2a3a;
+      margin: 4px 0;
+    }
+
+    #scene-selector {
+      background: #0d0d14;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #e0e0e0;
+      font-size: 12px;
+      width: 100%;
+    }
+
+    #scene-selector:focus {
+      outline: none;
+      border-color: #4a6fa5;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="viewport-container">
+    <div id="placement-indicator">Click in viewport to place marker</div>
+  </div>
+
+  <div id="control-panel">
+    <h2>Marker Overlay</h2>
+
+    <div>
+      <label for="scene-selector" style="font-size: 12px; color: #999; display: block; margin-bottom: 6px;">Scene</label>
+      <select id="scene-selector">
+        <option value="garden">Garden</option>
+        <option value="bonsai">Bonsai</option>
+        <option value="stump">Stump</option>
+        <option value="truck">Truck</option>
+      </select>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Marker A -->
+    <div class="marker-section" id="marker-a-section">
+      <h3><span class="marker-dot" id="marker-a-dot" style="background: #ff4444;"></span> Marker A</h3>
+      <div class="coord-row">
+        <label>X</label>
+        <input type="number" id="marker-a-x" value="0.5" step="0.1">
+      </div>
+      <div class="coord-row">
+        <label>Y</label>
+        <input type="number" id="marker-a-y" value="1.0" step="0.1">
+      </div>
+      <div class="coord-row">
+        <label>Z</label>
+        <input type="number" id="marker-a-z" value="0.5" step="0.1">
+      </div>
+      <div class="color-row">
+        <label>Color</label>
+        <input type="color" id="marker-a-color" value="#ff4444">
+      </div>
+      <button class="btn btn-place" id="place-marker-a">Click to Place in Scene</button>
+    </div>
+
+    <!-- Marker B -->
+    <div class="marker-section" id="marker-b-section">
+      <h3><span class="marker-dot" id="marker-b-dot" style="background: #44aaff;"></span> Marker B</h3>
+      <div class="coord-row">
+        <label>X</label>
+        <input type="number" id="marker-b-x" value="2.5" step="0.1">
+      </div>
+      <div class="coord-row">
+        <label>Y</label>
+        <input type="number" id="marker-b-y" value="2.0" step="0.1">
+      </div>
+      <div class="coord-row">
+        <label>Z</label>
+        <input type="number" id="marker-b-z" value="1.5" step="0.1">
+      </div>
+      <div class="color-row">
+        <label>Color</label>
+        <input type="color" id="marker-b-color" value="#44aaff">
+      </div>
+      <button class="btn btn-place" id="place-marker-b">Click to Place in Scene</button>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Line Settings -->
+    <div class="line-section">
+      <h3>Connection Line</h3>
+      <div class="toggle-row">
+        <label>Show Line</label>
+        <div class="toggle-switch">
+          <input type="checkbox" id="show-line" checked>
+          <span class="toggle-slider"></span>
+        </div>
+      </div>
+      <div class="color-row">
+        <label>Color</label>
+        <input type="color" id="line-color" value="#ffffff">
+      </div>
+      <div class="option-row">
+        <label>Dash Size</label>
+        <input type="range" id="dash-size" min="0.02" max="0.5" step="0.01" value="0.1">
+        <span class="range-value" id="dash-size-value">0.10</span>
+      </div>
+      <div class="option-row">
+        <label>Gap Size</label>
+        <input type="range" id="gap-size" min="0.01" max="0.3" step="0.01" value="0.05">
+        <span class="range-value" id="gap-size-value">0.05</span>
+      </div>
+      <div class="option-row">
+        <label>Marker Size</label>
+        <input type="range" id="marker-size" min="0.02" max="0.3" step="0.01" value="0.08">
+        <span class="range-value" id="marker-size-value">0.08</span>
+      </div>
+      <div class="option-row">
+        <label>Pulse Speed</label>
+        <input type="range" id="pulse-speed" min="0.5" max="8" step="0.5" value="3">
+        <span class="range-value" id="pulse-speed-value">3.0</span>
+      </div>
+      <div class="option-row">
+        <label>Place Depth</label>
+        <input type="range" id="place-depth" min="1" max="20" step="0.5" value="6">
+        <span class="range-value" id="place-depth-value">6.0</span>
+      </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="distance-display" id="distance-display">
+      Distance: --
+    </div>
+
+    <p class="info-text">
+      Use the coordinate inputs or click "Click to Place in Scene" then click the viewport
+      to position markers. The dashed line connects the two markers in 3D space.
+      Adjust place depth to control how far into the scene click-placed markers appear.
+    </p>
+  </div>
+
+  <script type="module">
+    import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+    import * as THREE from 'three';
+
+    // -- Scene configuration per available scene --
+    const SCENE_CONFIGS = {
+      garden: {
+        path: 'assets/data/garden/garden.ksplat',
+        cameraUp: [0, -1, -0.54],
+        cameraPosition: [-3.15634, -0.16946, -0.51552],
+        cameraLookAt: [1.52976, 2.27776, 1.65898],
+        splatAlphaRemovalThreshold: 20,
+        defaultMarkerA: [0.5, 1.0, 0.5],
+        defaultMarkerB: [2.5, 2.0, 1.5]
+      },
+      bonsai: {
+        path: 'assets/data/bonsai/bonsai_trimmed.ksplat',
+        cameraUp: [0, -1, -0.6],
+        cameraPosition: [-1, -4, 6],
+        cameraLookAt: [0, 4, 0],
+        splatAlphaRemovalThreshold: 20,
+        defaultMarkerA: [-0.5, 0.5, 0.5],
+        defaultMarkerB: [0.5, 1.0, -0.5]
+      },
+      stump: {
+        path: 'assets/data/stump/stump.ksplat',
+        cameraUp: [0, -1, -0.6],
+        cameraPosition: [-1, -4, 6],
+        cameraLookAt: [0, 4, 0],
+        splatAlphaRemovalThreshold: 20,
+        defaultMarkerA: [-0.5, 0.5, 0.5],
+        defaultMarkerB: [0.5, 1.0, -0.5]
+      },
+      truck: {
+        path: 'assets/data/truck/truck.ksplat',
+        cameraUp: [0, -1, -0.6],
+        cameraPosition: [-5, -3, -0.2],
+        cameraLookAt: [0, 4, -0],
+        splatAlphaRemovalThreshold: 20,
+        defaultMarkerA: [-1, 0.5, 0.5],
+        defaultMarkerB: [1, 1.5, -0.5]
+      }
+    };
+
+    // -- State --
+    let currentSceneName = 'garden';
+    let placementTarget = null; // 'a' or 'b' or null
+    let splatViewer = null;
+
+    // -- DOM references --
+    const viewportContainer = document.getElementById('viewport-container');
+    const placementIndicator = document.getElementById('placement-indicator');
+
+    const markerAInputs = {
+      x: document.getElementById('marker-a-x'),
+      y: document.getElementById('marker-a-y'),
+      z: document.getElementById('marker-a-z'),
+      color: document.getElementById('marker-a-color'),
+      dot: document.getElementById('marker-a-dot')
+    };
+
+    const markerBInputs = {
+      x: document.getElementById('marker-b-x'),
+      y: document.getElementById('marker-b-y'),
+      z: document.getElementById('marker-b-z'),
+      color: document.getElementById('marker-b-color'),
+      dot: document.getElementById('marker-b-dot')
+    };
+
+    const lineControls = {
+      show: document.getElementById('show-line'),
+      color: document.getElementById('line-color'),
+      dashSize: document.getElementById('dash-size'),
+      dashSizeValue: document.getElementById('dash-size-value'),
+      gapSize: document.getElementById('gap-size'),
+      gapSizeValue: document.getElementById('gap-size-value'),
+      markerSize: document.getElementById('marker-size'),
+      markerSizeValue: document.getElementById('marker-size-value'),
+      pulseSpeed: document.getElementById('pulse-speed'),
+      pulseSpeedValue: document.getElementById('pulse-speed-value'),
+      placeDepth: document.getElementById('place-depth'),
+      placeDepthValue: document.getElementById('place-depth-value')
+    };
+
+    const distanceDisplay = document.getElementById('distance-display');
+    const placeMarkerABtn = document.getElementById('place-marker-a');
+    const placeMarkerBBtn = document.getElementById('place-marker-b');
+    const sceneSelector = document.getElementById('scene-selector');
+
+    // -- Three.js setup --
+    let renderer, camera, threeScene, controls;
+    let markerA, markerB;
+    let connectionLine;
+    let clock;
+
+    function initRenderer() {
+      const rect = viewportContainer.getBoundingClientRect();
+      const renderWidth = Math.floor(rect.width);
+      const renderHeight = Math.floor(rect.height);
+
+      // Wrapper div with position:relative is required for the DropInViewer
+      // to properly attach its internal UI elements (loading spinner, etc.)
+      const rootElement = document.createElement('div');
+      rootElement.style.width = renderWidth + 'px';
+      rootElement.style.height = renderHeight + 'px';
+      rootElement.style.position = 'relative';
+      viewportContainer.appendChild(rootElement);
+
+      renderer = new THREE.WebGLRenderer({
+        antialias: false
+      });
+      renderer.setSize(renderWidth, renderHeight);
+      rootElement.appendChild(renderer.domElement);
+
+      return { renderWidth, renderHeight };
+    }
+
+    function initCamera(renderWidth, renderHeight, config) {
+      camera = new THREE.PerspectiveCamera(65, renderWidth / renderHeight, 0.1, 500);
+      camera.position.copy(new THREE.Vector3().fromArray(config.cameraPosition));
+      camera.up = new THREE.Vector3().fromArray(config.cameraUp).normalize();
+      camera.lookAt(new THREE.Vector3().fromArray(config.cameraLookAt));
+      return camera;
+    }
+
+    function initControls(config) {
+      controls = new GaussianSplats3D.OrbitControls(camera, renderer.domElement);
+      controls.target.copy(new THREE.Vector3().fromArray(config.cameraLookAt));
+      controls.rotateSpeed = 0.5;
+      controls.maxPolarAngle = Math.PI * 0.75;
+      controls.minPolarAngle = 0.1;
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.update();
+      return controls;
+    }
+
+    function createMarker(color, position) {
+      const baseSize = parseFloat(lineControls.markerSize.value);
+      const group = new THREE.Group();
+
+      // Core sphere
+      const coreGeometry = new THREE.SphereGeometry(baseSize, 24, 24);
+      const coreMaterial = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color),
+        transparent: false
+      });
+      const core = new THREE.Mesh(coreGeometry, coreMaterial);
+      core.name = 'core';
+      group.add(core);
+
+      // Glow ring (outer pulsating sphere)
+      const glowGeometry = new THREE.SphereGeometry(baseSize * 2.0, 24, 24);
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color),
+        transparent: true,
+        opacity: 0.25,
+        depthWrite: false
+      });
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      glow.name = 'glow';
+      group.add(glow);
+
+      group.position.copy(new THREE.Vector3().fromArray(position));
+      return group;
+    }
+
+    function createConnectionLine() {
+      const geometry = new THREE.BufferGeometry();
+      const material = new THREE.LineDashedMaterial({
+        color: new THREE.Color(lineControls.color.value),
+        dashSize: parseFloat(lineControls.dashSize.value),
+        gapSize: parseFloat(lineControls.gapSize.value),
+        linewidth: 1
+      });
+      const line = new THREE.Line(geometry, material);
+      return line;
+    }
+
+    function updateConnectionLine() {
+      if (!markerA || !markerB || !connectionLine) return;
+
+      const points = [
+        markerA.position.clone(),
+        markerB.position.clone()
+      ];
+      connectionLine.geometry.dispose();
+      connectionLine.geometry = new THREE.BufferGeometry().setFromPoints(points);
+      connectionLine.computeLineDistances();
+
+      connectionLine.visible = lineControls.show.checked;
+
+      // Update distance display
+      const dist = markerA.position.distanceTo(markerB.position);
+      distanceDisplay.textContent = 'Distance: ' + dist.toFixed(3) + ' units';
+    }
+
+    function updateMarkerGeometry(markerGroup, newSize) {
+      const core = markerGroup.getObjectByName('core');
+      const glow = markerGroup.getObjectByName('glow');
+      if (core) {
+        core.geometry.dispose();
+        core.geometry = new THREE.SphereGeometry(newSize, 24, 24);
+      }
+      if (glow) {
+        glow.geometry.dispose();
+        glow.geometry = new THREE.SphereGeometry(newSize * 2.0, 24, 24);
+      }
+    }
+
+    function updateMarkerColor(markerGroup, hexColor, dotElement) {
+      const color = new THREE.Color(hexColor);
+      const core = markerGroup.getObjectByName('core');
+      const glow = markerGroup.getObjectByName('glow');
+      if (core) core.material.color.copy(color);
+      if (glow) glow.material.color.copy(color);
+      if (dotElement) dotElement.style.background = hexColor;
+    }
+
+    function animateMarkers(elapsed) {
+      const speed = parseFloat(lineControls.pulseSpeed.value);
+      const pulseScale = 1.0 + 0.3 * Math.sin(elapsed * speed);
+      const glowPulse = 1.0 + 0.5 * Math.sin(elapsed * speed);
+      const glowOpacity = 0.15 + 0.15 * Math.sin(elapsed * speed);
+
+      if (markerA) {
+        const coreA = markerA.getObjectByName('core');
+        const glowA = markerA.getObjectByName('glow');
+        if (coreA) coreA.scale.setScalar(pulseScale);
+        if (glowA) {
+          glowA.scale.setScalar(glowPulse);
+          glowA.material.opacity = glowOpacity;
+        }
+      }
+
+      if (markerB) {
+        const coreB = markerB.getObjectByName('core');
+        const glowB = markerB.getObjectByName('glow');
+        if (coreB) coreB.scale.setScalar(pulseScale);
+        if (glowB) {
+          glowB.scale.setScalar(glowPulse);
+          glowB.material.opacity = glowOpacity;
+        }
+      }
+    }
+
+    function syncInputsFromMarker(marker, inputs) {
+      inputs.x.value = marker.position.x.toFixed(2);
+      inputs.y.value = marker.position.y.toFixed(2);
+      inputs.z.value = marker.position.z.toFixed(2);
+    }
+
+    function syncMarkerFromInputs(marker, inputs) {
+      marker.position.set(
+        parseFloat(inputs.x.value) || 0,
+        parseFloat(inputs.y.value) || 0,
+        parseFloat(inputs.z.value) || 0
+      );
+      updateConnectionLine();
+    }
+
+    // -- Placement via viewport click (with drag detection) --
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const mouseDownPos = new THREE.Vector2();
+    const DRAG_THRESHOLD = 4; // pixels - below this is considered a click, not a drag
+
+    function onViewportMouseDown(event) {
+      mouseDownPos.set(event.clientX, event.clientY);
+    }
+
+    function onViewportClick(event) {
+      if (!placementTarget) return;
+
+      // Ignore if the user dragged (was orbiting/panning the camera)
+      const dx = event.clientX - mouseDownPos.x;
+      const dy = event.clientY - mouseDownPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      // Project a point along the ray at the configured depth
+      const depth = parseFloat(lineControls.placeDepth.value);
+      const point = new THREE.Vector3();
+      raycaster.ray.at(depth, point);
+
+      if (placementTarget === 'a') {
+        markerA.position.copy(point);
+        syncInputsFromMarker(markerA, markerAInputs);
+      } else if (placementTarget === 'b') {
+        markerB.position.copy(point);
+        syncInputsFromMarker(markerB, markerBInputs);
+      }
+
+      updateConnectionLine();
+      exitPlacementMode();
+    }
+
+    function enterPlacementMode(target) {
+      if (placementTarget === target) {
+        exitPlacementMode();
+        return;
+      }
+      placementTarget = target;
+      placementIndicator.style.display = 'block';
+      placementIndicator.textContent = 'Click in viewport to place Marker ' + target.toUpperCase();
+      if (target === 'a') {
+        placeMarkerABtn.classList.add('active');
+        placeMarkerBBtn.classList.remove('active');
+      } else {
+        placeMarkerBBtn.classList.add('active');
+        placeMarkerABtn.classList.remove('active');
+      }
+      renderer.domElement.style.cursor = 'crosshair';
+    }
+
+    function exitPlacementMode() {
+      placementTarget = null;
+      placementIndicator.style.display = 'none';
+      placeMarkerABtn.classList.remove('active');
+      placeMarkerBBtn.classList.remove('active');
+      renderer.domElement.style.cursor = 'default';
+    }
+
+    // -- Bind UI events --
+    function bindEvents() {
+      // Marker A coordinate inputs
+      [markerAInputs.x, markerAInputs.y, markerAInputs.z].forEach((input) => {
+        input.addEventListener('input', () => syncMarkerFromInputs(markerA, markerAInputs));
+      });
+
+      // Marker B coordinate inputs
+      [markerBInputs.x, markerBInputs.y, markerBInputs.z].forEach((input) => {
+        input.addEventListener('input', () => syncMarkerFromInputs(markerB, markerBInputs));
+      });
+
+      // Marker A color
+      markerAInputs.color.addEventListener('input', () => {
+        updateMarkerColor(markerA, markerAInputs.color.value, markerAInputs.dot);
+      });
+
+      // Marker B color
+      markerBInputs.color.addEventListener('input', () => {
+        updateMarkerColor(markerB, markerBInputs.color.value, markerBInputs.dot);
+      });
+
+      // Placement buttons
+      placeMarkerABtn.addEventListener('click', () => enterPlacementMode('a'));
+      placeMarkerBBtn.addEventListener('click', () => enterPlacementMode('b'));
+
+      // Viewport click for placement (with drag detection)
+      renderer.domElement.addEventListener('mousedown', onViewportMouseDown);
+      renderer.domElement.addEventListener('click', onViewportClick);
+
+      // Line controls
+      lineControls.show.addEventListener('change', () => {
+        updateConnectionLine();
+      });
+
+      lineControls.color.addEventListener('input', () => {
+        connectionLine.material.color.set(lineControls.color.value);
+      });
+
+      lineControls.dashSize.addEventListener('input', () => {
+        lineControls.dashSizeValue.textContent = parseFloat(lineControls.dashSize.value).toFixed(2);
+        connectionLine.material.dashSize = parseFloat(lineControls.dashSize.value);
+        updateConnectionLine();
+      });
+
+      lineControls.gapSize.addEventListener('input', () => {
+        lineControls.gapSizeValue.textContent = parseFloat(lineControls.gapSize.value).toFixed(2);
+        connectionLine.material.gapSize = parseFloat(lineControls.gapSize.value);
+        updateConnectionLine();
+      });
+
+      lineControls.markerSize.addEventListener('input', () => {
+        const size = parseFloat(lineControls.markerSize.value);
+        lineControls.markerSizeValue.textContent = size.toFixed(2);
+        updateMarkerGeometry(markerA, size);
+        updateMarkerGeometry(markerB, size);
+      });
+
+      lineControls.pulseSpeed.addEventListener('input', () => {
+        lineControls.pulseSpeedValue.textContent = parseFloat(lineControls.pulseSpeed.value).toFixed(1);
+      });
+
+      lineControls.placeDepth.addEventListener('input', () => {
+        lineControls.placeDepthValue.textContent = parseFloat(lineControls.placeDepth.value).toFixed(1);
+      });
+
+      // Escape to exit placement mode
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          exitPlacementMode();
+        }
+      });
+
+      // Scene selector
+      sceneSelector.addEventListener('change', () => {
+        loadScene(sceneSelector.value);
+      });
+
+      // Window resize
+      window.addEventListener('resize', onResize);
+    }
+
+    function onResize() {
+      const rect = viewportContainer.getBoundingClientRect();
+      const width = Math.floor(rect.width);
+      const height = Math.floor(rect.height);
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+
+    // -- Scene loading --
+    async function loadScene(sceneName) {
+      const config = SCENE_CONFIGS[sceneName];
+      if (!config) return;
+
+      currentSceneName = sceneName;
+
+      // Remove old viewer from scene
+      if (splatViewer && threeScene) {
+        threeScene.remove(splatViewer);
+        try {
+          await splatViewer.dispose();
+        } catch (e) {
+          // Disposal may fail if viewer was not fully initialized
+        }
+        splatViewer = null;
+      }
+
+      // Update camera
+      camera.position.copy(new THREE.Vector3().fromArray(config.cameraPosition));
+      camera.up = new THREE.Vector3().fromArray(config.cameraUp).normalize();
+      camera.lookAt(new THREE.Vector3().fromArray(config.cameraLookAt));
+
+      // Update controls target
+      controls.target.copy(new THREE.Vector3().fromArray(config.cameraLookAt));
+      controls.update();
+
+      // Update default marker positions
+      markerA.position.fromArray(config.defaultMarkerA);
+      markerB.position.fromArray(config.defaultMarkerB);
+      syncInputsFromMarker(markerA, markerAInputs);
+      syncInputsFromMarker(markerB, markerBInputs);
+      updateConnectionLine();
+
+      // Create new viewer
+      splatViewer = new GaussianSplats3D.DropInViewer();
+      splatViewer.addSplatScenes([{
+        'path': config.path,
+        'splatAlphaRemovalThreshold': config.splatAlphaRemovalThreshold
+      }], true);
+      threeScene.add(splatViewer);
+    }
+
+    // -- Main initialization --
+    function init() {
+      const config = SCENE_CONFIGS[currentSceneName];
+
+      clock = new THREE.Clock();
+
+      const { renderWidth, renderHeight } = initRenderer();
+      initCamera(renderWidth, renderHeight, config);
+      initControls(config);
+
+      // Create Three.js scene
+      threeScene = new THREE.Scene();
+
+      // Create markers
+      markerA = createMarker(markerAInputs.color.value, config.defaultMarkerA);
+      markerB = createMarker(markerBInputs.color.value, config.defaultMarkerB);
+      threeScene.add(markerA);
+      threeScene.add(markerB);
+
+      // Sync default positions to inputs
+      syncInputsFromMarker(markerA, markerAInputs);
+      syncInputsFromMarker(markerB, markerBInputs);
+
+      // Create connection line
+      connectionLine = createConnectionLine();
+      threeScene.add(connectionLine);
+      updateConnectionLine();
+
+      // Create the Gaussian Splat viewer (DropInViewer)
+      splatViewer = new GaussianSplats3D.DropInViewer();
+      splatViewer.addSplatScenes([{
+        'path': config.path,
+        'splatAlphaRemovalThreshold': config.splatAlphaRemovalThreshold
+      }], true);
+      threeScene.add(splatViewer);
+
+      // Bind all UI events
+      bindEvents();
+
+      // Start render loop
+      requestAnimationFrame(update);
+    }
+
+    function update() {
+      requestAnimationFrame(update);
+      const elapsed = clock.getElapsedTime();
+
+      controls.update();
+      animateMarkers(elapsed);
+      renderer.render(threeScene, camera);
+    }
+
+    init();
+  </script>
+</body>
+
+</html>
