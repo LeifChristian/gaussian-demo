@@ -1,6 +1,6 @@
 # 3D Marker Overlay Demos
 
-Custom demos built on top of [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D) by SOS Technologies. These interactive demos showcase 3D spatial pinpointing and marker placement systems, exploring real-time 3D visualization, marker placement, distance measurement, and scene rendering using Three.js.
+Custom demos built on top of [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D). These interactive demos showcase 3D spatial pinpointing and marker placement systems, exploring real-time 3D visualization, marker placement, distance measurement, and scene rendering using Three.js.
 
 ## Overview
 
