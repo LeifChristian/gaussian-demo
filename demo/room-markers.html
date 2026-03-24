@@ -174,6 +174,33 @@
     }
     .section-divider { border: none; border-top: 1px solid #2a2a3a; margin: 2px 0; }
     .info-text { font-size: 10px; color: #555; line-height: 1.4; }
+
+    /* Floor items */
+    .floor-list { display: flex; flex-direction: column; gap: 4px; }
+    .floor-item {
+      display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 4px;
+      font-size: 11px; background: #1a1a28; border: 1px solid #2a2a3a;
+    }
+    .floor-item.ground { color: #888; }
+    .floor-item .floor-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .floor-item .floor-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .floor-item .floor-elev {
+      width: 56px; background: #0d0d14; border: 1px solid #333; border-radius: 4px;
+      padding: 2px 4px; color: #e0e0e0; font-size: 10px; font-family: 'Courier New', monospace;
+      text-align: right;
+    }
+    .floor-item .floor-elev:focus { outline: none; border-color: #4a6fa5; }
+    .floor-item .floor-color {
+      width: 22px; height: 18px; border: 1px solid #333; border-radius: 3px;
+      cursor: pointer; background: transparent; padding: 0;
+    }
+    .floor-item .floor-color::-webkit-color-swatch-wrapper { padding: 1px; }
+    .floor-item .floor-color::-webkit-color-swatch { border-radius: 2px; border: none; }
+    .floor-item .floor-del {
+      background: none; border: none; color: #884444; cursor: pointer; font-size: 13px; padding: 0 2px;
+    }
+    .floor-item .floor-del:hover { color: #ff6666; }
+    .floor-item .floor-unit { font-size: 9px; color: #666; }
   </style>
 </head>
 
@@ -232,6 +259,13 @@
       </div>
     </div>
 
+    <!-- Floors -->
+    <div class="ps">
+      <h3>Floors</h3>
+      <button class="btn btn-sm" id="add-floor" style="width:100%;margin-bottom:8px">+ Add Floor</button>
+      <div class="floor-list" id="floor-list"></div>
+    </div>
+
     <!-- View -->
     <div class="ps">
       <h3>View</h3>
@@ -279,6 +313,8 @@
         <div class="row"><label>X</label><input type="number" id="sel-x" step="0.1"></div>
         <div class="row"><label>Y</label><input type="number" id="sel-y" step="0.1"></div>
         <div class="row"><label>Z</label><input type="number" id="sel-z" step="0.1"></div>
+        <div style="font-size:10px;color:#666;margin:6px 0 6px">Floor</div>
+        <div class="row"><label>Floor</label><select id="sel-floor" style="flex:1"></select></div>
         <div style="font-size:10px;color:#666;margin:6px 0 6px">Scale</div>
         <div class="row"><label>Size</label><input type="range" id="sel-scale" min="0.1" max="4.0" step="0.05" value="1"><span class="rv" id="sel-scale-v">1.00</span></div>
         <div style="font-size:10px;color:#666;margin:6px 0 6px">Rotation (degrees)</div>
@@ -386,12 +422,15 @@
     let selectedEntry = null;  // currently selected placed object
     let currentSceneId = null; // id of loaded scene in localStorage
     const STORAGE_KEY = 'sos_room_scenes';
+    let floors = [];
+    let floorIdGen = 0;
+    const FLOOR_COLORS = ['#4a90d9', '#d94a4a', '#4ad94a', '#d9d94a', '#d94ad9', '#4ad9d9', '#d9904a', '#904ad9'];
 
     // =========================================================================
     // Three.js globals
     // =========================================================================
     let renderer, camera, scene, controls, clock;
-    let roomGroup, lightGroup;
+    let roomGroup, lightGroup, floorGroup;
     let markerA, markerB, connectionLine;
     const raycastTargets = [];
     const roomSurfaces = [];
@@ -463,7 +502,7 @@
       if (shape === 'rectangular') {
         const hw = w / 2, hd = d / 2;
         const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorMat);
-        fl.rotation.x = -Math.PI / 2; fl.receiveShadow = true; addSurface(fl);
+        fl.rotation.x = -Math.PI / 2; fl.receiveShadow = true; fl.userData.floorId = 'ground'; addSurface(fl);
         const cl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), ceilMat);
         cl.position.y = h; cl.rotation.x = Math.PI / 2; cl.receiveShadow = true; addSurface(cl);
         [
@@ -485,7 +524,7 @@
       } else {
         const radius = Math.max(w, d) / 2, seg = 48;
         const fl = new THREE.Mesh(new THREE.CircleGeometry(radius, seg), floorMat);
-        fl.rotation.x = -Math.PI / 2; fl.receiveShadow = true; addSurface(fl);
+        fl.rotation.x = -Math.PI / 2; fl.receiveShadow = true; fl.userData.floorId = 'ground'; addSurface(fl);
         const cl = new THREE.Mesh(new THREE.CircleGeometry(radius, seg), ceilMat);
         cl.position.y = h; cl.rotation.x = Math.PI / 2; cl.receiveShadow = true; addSurface(cl);
         const wg = new THREE.CylinderGeometry(radius, radius, h, seg, 1, true);
@@ -496,6 +535,7 @@
       }
       scene.add(roomGroup);
       rebuildLighting();
+      if (floorGroup) rebuildFloorPlanes();
     }
 
     // =========================================================================
@@ -517,6 +557,204 @@
       const fm = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff8e8, emissiveIntensity: 0.8, roughness: 0.3 });
       const fix = new THREE.Mesh(fg, fm); fix.position.set(0, h - 0.013, 0); lightGroup.add(fix);
       scene.add(lightGroup);
+    }
+
+    // =========================================================================
+    // Floors
+    // =========================================================================
+    function getFloorName(id) {
+      if (!id || id === 'ground') return 'Ground';
+      const f = floors.find(fl => fl.id === id);
+      return f ? f.name : 'Ground';
+    }
+
+    function getFloorElevation(id) {
+      if (!id || id === 'ground') return 0;
+      const f = floors.find(fl => fl.id === id);
+      return f ? f.elevation : 0;
+    }
+
+    function getPlacementSurfaces() {
+      const surfaces = [...roomSurfaces];
+      floors.forEach(f => { if (f.mesh) surfaces.push(f.mesh); });
+      return surfaces;
+    }
+
+    function createFloorPlane(floor, w, d, roomShape) {
+      let geo;
+      if (roomShape === 'rounded') {
+        const radius = Math.max(w, d) / 2;
+        geo = new THREE.CircleGeometry(radius, 48);
+      } else {
+        geo = new THREE.PlaneGeometry(w, d);
+      }
+      const mat = new THREE.MeshStandardMaterial({
+        color: floor.color, transparent: true, opacity: 0.25,
+        roughness: 0.8, side: THREE.DoubleSide, depthWrite: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.y = floor.elevation;
+      mesh.renderOrder = -1;
+      mesh.userData.floorId = floor.id;
+      floor.mesh = mesh;
+      floorGroup.add(mesh);
+      raycastTargets.push(mesh);
+
+      const edges = new THREE.EdgesGeometry(geo);
+      const edgeMat = new THREE.LineBasicMaterial({ color: floor.color, opacity: 0.6, transparent: true });
+      const edgeMesh = new THREE.LineSegments(edges, edgeMat);
+      edgeMesh.rotation.x = -Math.PI / 2;
+      edgeMesh.position.y = floor.elevation;
+      floor.edgeMesh = edgeMesh;
+      floorGroup.add(edgeMesh);
+    }
+
+    function rebuildFloorPlanes() {
+      const { w, d, shape } = getRoomDims();
+      floors.forEach(f => {
+        if (f.mesh) {
+          const idx = raycastTargets.indexOf(f.mesh);
+          if (idx >= 0) raycastTargets.splice(idx, 1);
+          floorGroup.remove(f.mesh);
+          f.mesh.geometry.dispose();
+          f.mesh.material.dispose();
+        }
+        if (f.edgeMesh) {
+          floorGroup.remove(f.edgeMesh);
+          f.edgeMesh.geometry.dispose();
+          f.edgeMesh.material.dispose();
+        }
+        createFloorPlane(f, w, d, shape);
+      });
+    }
+
+    function addFloor(elevation, name, color, existingId) {
+      const id = existingId || ('floor_' + (++floorIdGen));
+      if (!name) name = 'Floor ' + (floors.length + 1);
+      if (!color) color = FLOOR_COLORS[floors.length % FLOOR_COLORS.length];
+      if (elevation === undefined || elevation === null) {
+        const { h } = getRoomDims();
+        elevation = parseFloat((h / 2).toFixed(2));
+      }
+      const floor = { id, name, elevation, color, mesh: null, edgeMesh: null };
+      floors.push(floor);
+      const { w, d, shape } = getRoomDims();
+      createFloorPlane(floor, w, d, shape);
+      renderFloorList();
+      return floor;
+    }
+
+    function removeFloor(id) {
+      const idx = floors.findIndex(f => f.id === id);
+      if (idx < 0) return;
+      const f = floors[idx];
+      if (f.mesh) {
+        const ri = raycastTargets.indexOf(f.mesh);
+        if (ri >= 0) raycastTargets.splice(ri, 1);
+        floorGroup.remove(f.mesh);
+        f.mesh.geometry.dispose();
+        f.mesh.material.dispose();
+      }
+      if (f.edgeMesh) {
+        floorGroup.remove(f.edgeMesh);
+        f.edgeMesh.geometry.dispose();
+        f.edgeMesh.material.dispose();
+      }
+      placedObjects.forEach(o => { if (o.floorId === id) o.floorId = 'ground'; });
+      floors.splice(idx, 1);
+      renderFloorList();
+      renderObjectList();
+    }
+
+    function clearAllFloors() {
+      floors.forEach(f => {
+        if (f.mesh) {
+          const idx = raycastTargets.indexOf(f.mesh);
+          if (idx >= 0) raycastTargets.splice(idx, 1);
+          floorGroup.remove(f.mesh);
+          f.mesh.geometry.dispose();
+          f.mesh.material.dispose();
+        }
+        if (f.edgeMesh) {
+          floorGroup.remove(f.edgeMesh);
+          f.edgeMesh.geometry.dispose();
+          f.edgeMesh.material.dispose();
+        }
+      });
+      floors = [];
+    }
+
+    function updateFloorElevation(id, newElev) {
+      const f = floors.find(fl => fl.id === id);
+      if (!f) return;
+      const delta = newElev - f.elevation;
+      f.elevation = newElev;
+      if (f.mesh) f.mesh.position.y = newElev;
+      if (f.edgeMesh) f.edgeMesh.position.y = newElev;
+      placedObjects.forEach(o => {
+        if (o.floorId === id) o.mesh.position.y += delta;
+      });
+      if (selectedEntry && selectedEntry.floorId === id) syncSelInputs();
+    }
+
+    function renderFloorList() {
+      const listEl = $('floor-list');
+      listEl.innerHTML = '';
+      const groundEl = document.createElement('div');
+      groundEl.className = 'floor-item ground';
+      groundEl.innerHTML =
+        '<span class="floor-swatch" style="background:#888"></span>' +
+        '<span class="floor-name">Ground</span>' +
+        '<span class="floor-unit" style="margin-left:auto">0.00 m</span>';
+      listEl.appendChild(groundEl);
+      floors.forEach(f => {
+        const el = document.createElement('div');
+        el.className = 'floor-item';
+        el.innerHTML =
+          '<input type="color" class="floor-color" value="' + f.color + '">' +
+          '<span class="floor-name">' + f.name + '</span>' +
+          '<input type="number" class="floor-elev" value="' + f.elevation.toFixed(2) + '" step="0.1" min="0.1" max="20">' +
+          '<span class="floor-unit">m</span>' +
+          '<button class="floor-del" title="Remove">&times;</button>';
+        el.querySelector('.floor-elev').addEventListener('input', (e) => {
+          updateFloorElevation(f.id, parseFloat(e.target.value) || 0);
+        });
+        el.querySelector('.floor-color').addEventListener('input', (e) => {
+          f.color = e.target.value;
+          if (f.mesh) f.mesh.material.color.set(f.color);
+          if (f.edgeMesh) f.edgeMesh.material.color.set(f.color);
+        });
+        el.querySelector('.floor-del').addEventListener('click', () => removeFloor(f.id));
+        listEl.appendChild(el);
+      });
+    }
+
+    function populateFloorSelect(currentFloorId) {
+      const sel = $('sel-floor');
+      sel.innerHTML = '';
+      const groundOpt = document.createElement('option');
+      groundOpt.value = 'ground';
+      groundOpt.textContent = 'Ground (0.00m)';
+      sel.appendChild(groundOpt);
+      floors.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = f.name + ' (' + f.elevation.toFixed(2) + 'm)';
+        sel.appendChild(opt);
+      });
+      sel.value = currentFloorId || 'ground';
+    }
+
+    function applySelFloor() {
+      if (!selectedEntry) return;
+      const newFloorId = $('sel-floor').value;
+      const newElev = getFloorElevation(newFloorId);
+      const offset = (selectedEntry.shape === 'human') ? 0 : selectedEntry.size / 2;
+      selectedEntry.floorId = newFloorId;
+      selectedEntry.mesh.position.y = newElev + offset;
+      syncSelInputs();
+      renderObjectList();
     }
 
     // =========================================================================
@@ -570,7 +808,7 @@
       return m;
     }
 
-    function placeObject(shape, point, normal) {
+    function placeObject(shape, point, normal, floorId) {
       const size = parseFloat(objIn.size.value);
       const color = new THREE.Color(objIn.color.value);
       const obj = createShapeMesh(shape, size, color);
@@ -580,7 +818,7 @@
       obj.castShadow = true;
       scene.add(obj);
       const id = ++idGen;
-      const entry = { id, shape, mesh: obj, size, color: objIn.color.value, scaleMultiplier: 1 };
+      const entry = { id, shape, mesh: obj, size, color: objIn.color.value, scaleMultiplier: 1, floorId: floorId || 'ground' };
       placedObjects.push(entry);
       obj.traverse((c) => { if (c.isMesh) raycastTargets.push(c); });
       renderObjectList();
@@ -613,7 +851,7 @@
         el.className = 'obj-item' + (selectedEntry && selectedEntry.id === o.id ? ' selected' : '');
         el.innerHTML =
           '<span class="obj-swatch" style="background:' + o.color + '"></span>' +
-          '<span class="obj-name">' + o.shape + ' #' + o.id + '</span>' +
+          '<span class="obj-name">' + o.shape + ' #' + o.id + ' <span style="color:#666;font-size:9px">(' + getFloorName(o.floorId) + ')</span></span>' +
           '<button class="obj-del" title="Remove">&times;</button>';
         el.addEventListener('click', (e) => {
           if (e.target.classList.contains('obj-del')) return;
@@ -670,6 +908,7 @@
       selRXV.textContent = selRX.value;
       selRYV.textContent = selRY.value;
       selRZV.textContent = selRZ.value;
+      populateFloorSelect(selectedEntry.floorId);
     }
 
     function applySelPosition() {
@@ -798,7 +1037,8 @@
 
       // If an object is selected, clicks move it to a surface
       if (selectedEntry) {
-        const hits = raycaster.intersectObjects(roomSurfaces, false);
+        const surfaces = getPlacementSurfaces();
+        const hits = raycaster.intersectObjects(surfaces, false);
         if (hits.length > 0) {
           const hit = hits[0];
           const pt = hit.point.clone();
@@ -807,7 +1047,9 @@
           const offset = (selectedEntry.shape === 'human') ? 0 : selectedEntry.size / 2;
           if (normal) pt.addScaledVector(normal, offset);
           selectedEntry.mesh.position.copy(pt);
+          selectedEntry.floorId = hit.object.userData.floorId || 'ground';
           syncSelInputs();
+          renderObjectList();
         }
         return;
       }
@@ -822,7 +1064,7 @@
         if (hit.face) { normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld); pt.addScaledVector(normal, 0.005); }
         if (placementMode === 'marker-a') { markerA.position.copy(pt); syncFromMarker(markerA, maIn); updateLine(); }
         else if (placementMode === 'marker-b') { markerB.position.copy(pt); syncFromMarker(markerB, mbIn); updateLine(); }
-        else if (placementMode === 'object' && selectedShape) { placeObject(selectedShape, pt, normal); }
+        else if (placementMode === 'object' && selectedShape) { const hitFloorId = hit.object.userData.floorId || 'ground'; placeObject(selectedShape, pt, normal, hitFloorId); }
         if (placementMode !== 'object') exitPlacement();
         return;
       }
@@ -892,7 +1134,8 @@
           shape: o.shape, size: o.size, color: o.color,
           position: [o.mesh.position.x, o.mesh.position.y, o.mesh.position.z],
           scale: o.scaleMultiplier || 1,
-          rotation: [o.mesh.rotation.x, o.mesh.rotation.y, o.mesh.rotation.z]
+          rotation: [o.mesh.rotation.x, o.mesh.rotation.y, o.mesh.rotation.z],
+          floorId: o.floorId || 'ground'
         })),
         markers: {
           a: { position: [markerA.position.x, markerA.position.y, markerA.position.z], color: maIn.color.value },
@@ -902,7 +1145,8 @@
           show: lineIn.show.checked, color: lineIn.color.value,
           dash: parseFloat(lineIn.dash.value), gap: parseFloat(lineIn.gap.value),
           mSize: parseFloat(lineIn.mSize.value), pulse: parseFloat(lineIn.pulse.value)
-        }
+        },
+        floors: floors.map(f => ({ id: f.id, name: f.name, elevation: f.elevation, color: f.color }))
       };
     }
 
@@ -918,6 +1162,12 @@
       roomIn.h.value = roomIn.hN.value = data.room.h;
       rebuildRoom();
 
+      // Floors
+      clearAllFloors();
+      if (data.floors) {
+        data.floors.forEach(f => addFloor(f.elevation, f.name, f.color, f.id));
+      }
+
       // Objects
       data.objects.forEach((o) => {
         const color = new THREE.Color(o.color);
@@ -929,7 +1179,7 @@
         mesh.castShadow = true;
         scene.add(mesh);
         const id = ++idGen;
-        placedObjects.push({ id, shape: o.shape, mesh, size: o.size, color: o.color, scaleMultiplier: sm });
+        placedObjects.push({ id, shape: o.shape, mesh, size: o.size, color: o.color, scaleMultiplier: sm, floorId: o.floorId || 'ground' });
         mesh.traverse((c) => { if (c.isMesh) raycastTargets.push(c); });
       });
       renderObjectList();
@@ -1000,7 +1250,7 @@
     }
 
     function newScene() {
-      deselectObject(); exitPlacement(); clearAllObjects();
+      deselectObject(); exitPlacement(); clearAllObjects(); clearAllFloors();
       currentSceneId = null;
       roomIn.shape.value = 'rectangular';
       roomIn.w.value = roomIn.wN.value = 6;
@@ -1011,6 +1261,7 @@
       markerB.position.set(-0.8, 0.5, 0.3); syncFromMarker(markerB, mbIn);
       updateLine();
       renderSceneList();
+      renderFloorList();
     }
 
     function renderSceneList() {
@@ -1049,6 +1300,9 @@
       $('sc-save').addEventListener('click', saveCurrentScene);
       $('sc-save-top').addEventListener('click', saveCurrentScene);
 
+      // Floors
+      $('add-floor').addEventListener('click', () => addFloor());
+
       // Room
       roomIn.w.addEventListener('input', () => { roomIn.wN.value = roomIn.w.value; rebuildRoom(); });
       roomIn.d.addEventListener('input', () => { roomIn.dN.value = roomIn.d.value; rebuildRoom(); });
@@ -1086,6 +1340,7 @@
       [selX, selY, selZ].forEach((el) => el.addEventListener('input', applySelPosition));
       selScale.addEventListener('input', applySelScale);
       [selRX, selRY, selRZ].forEach((el) => el.addEventListener('input', applySelRotation));
+      $('sel-floor').addEventListener('change', applySelFloor);
       $('sel-deselect').addEventListener('click', deselectObject);
 
       // Markers
@@ -1124,6 +1379,8 @@
       initCamera(w, h); initControls();
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x1a1a2e);
+      floorGroup = new THREE.Group();
+      scene.add(floorGroup);
       rebuildRoom();
       const aPos = [parseFloat(maIn.x.value), parseFloat(maIn.y.value), parseFloat(maIn.z.value)];
       const bPos = [parseFloat(mbIn.x.value), parseFloat(mbIn.y.value), parseFloat(mbIn.z.value)];
@@ -1132,7 +1389,7 @@
       scene.add(markerA); scene.add(markerB);
       connectionLine = createConnectionLine();
       scene.add(connectionLine); updateLine();
-      bindEvents(); syncZoomSlider(); renderSceneList();
+      bindEvents(); syncZoomSlider(); renderSceneList(); renderFloorList();
       requestAnimationFrame(loop);
     }
 
